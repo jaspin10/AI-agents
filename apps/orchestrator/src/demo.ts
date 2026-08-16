@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ANALYST_AGENT_NAME, analystAgent } from '@platform/agent-analyst';
-import { JsonFileLogStore } from '@platform/memory';
+import { createLogStore } from '@platform/memory';
 import { createLogger, type Task } from '@platform/shared';
 import { Orchestrator } from './router.js';
 
@@ -27,7 +27,7 @@ function heading(title: string): void {
 }
 
 async function main(): Promise<void> {
-  const store = new JsonFileLogStore();
+  const store = createLogStore();
   const orchestrator = new Orchestrator({ logStore: store });
 
   heading(
