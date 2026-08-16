@@ -8,3 +8,8 @@ export * from './schemas/performance.js';
 export * from './schemas/agent-log.js';
 export * from './schemas/agent-contract.js';
 export * from './schemas/analyst.js';
+export * from './schemas/brand-asset.js';
+export * from './schemas/content.js';
+export * from './schemas/conversation.js';
+export * from './schemas/enrollment.js';
+export * from './schemas/demo-log.js';
