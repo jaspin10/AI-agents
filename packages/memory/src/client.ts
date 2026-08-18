@@ -19,6 +19,7 @@ import type { SupabaseConfig } from './config.js';
  * Typed read/write helpers for the §3 memory tables. Insert helpers validate
  * with Zod before writing; read helpers validate after reading. Retrieval
  * (embeddings/pgvector) lands in M4 — until then reads are simple selects.
+ * Upsert helpers (M3) key on the migration-0002 unique indexes for idempotent syncs.
  */
 export interface MemoryClient {
   brandAssets: {
@@ -28,10 +29,12 @@ export interface MemoryClient {
   };
   content: {
     insert: (row: ContentRow) => Promise<void>;
+    upsert: (row: ContentRow) => Promise<void>;
     all: () => Promise<ContentRow[]>;
   };
   performance: {
     insert: (row: PerformanceRecord) => Promise<void>;
+    upsert: (row: PerformanceRecord) => Promise<void>;
     all: () => Promise<PerformanceRecord[]>;
   };
   conversations: {
@@ -40,6 +43,7 @@ export interface MemoryClient {
   };
   enrollments: {
     insert: (row: EnrollmentRow) => Promise<void>;
+    upsert: (row: EnrollmentRow) => Promise<void>;
     all: () => Promise<EnrollmentRow[]>;
   };
   demoLog: {
@@ -119,6 +123,22 @@ export function createMemoryClientFromConfig(
         });
         if (error) fail('content', 'insert', error.message);
       },
+      async upsert(row) {
+        const c = ContentRowSchema.parse(row);
+        const { error } = await db.from('content').upsert(
+          {
+            platform: c.platform,
+            platform_video_id: c.platformVideoId,
+            title: c.title,
+            hook: c.hook,
+            format: c.format,
+            hypothesis: c.hypothesis,
+            posted_at: c.postedAt,
+          },
+          { onConflict: 'platform,platform_video_id' }
+        );
+        if (error) fail('content', 'upsert', error.message);
+      },
       async all() {
         const { data, error } = await db.from('content').select('*');
         if (error) fail('content', 'select', error.message);
@@ -144,6 +164,7 @@ export function createMemoryClientFromConfig(
           content_id: p.contentId,
           platform: p.platform,
           captured_at: p.capturedAt,
+          captured_date: p.capturedDate,
           views: p.metrics.views,
           likes: p.metrics.likes,
           comments: p.metrics.comments,
@@ -155,6 +176,28 @@ export function createMemoryClientFromConfig(
         });
         if (error) fail('performance', 'insert', error.message);
       },
+      async upsert(row) {
+        const p = PerformanceRecordSchema.parse(row);
+        const { error } = await db.from('performance').upsert(
+          {
+            id: p.id,
+            content_id: p.contentId,
+            platform: p.platform,
+            captured_at: p.capturedAt,
+            captured_date: p.capturedDate,
+            views: p.metrics.views,
+            likes: p.metrics.likes,
+            comments: p.metrics.comments,
+            shares: p.metrics.shares,
+            saves: p.metrics.saves,
+            avg_watch_time_seconds: p.metrics.avgWatchTimeSeconds,
+            retention_pct: p.metrics.retentionPct,
+            followers_at_capture: p.metrics.followersAtCapture,
+          },
+          { onConflict: 'content_id,captured_date' }
+        );
+        if (error) fail('performance', 'upsert', error.message);
+      },
       async all() {
         const { data, error } = await db.from('performance').select('*');
         if (error) fail('performance', 'select', error.message);
@@ -164,6 +207,7 @@ export function createMemoryClientFromConfig(
             contentId: r['content_id'],
             platform: r['platform'],
             capturedAt: new Date(String(r['captured_at'])).toISOString(),
+            capturedDate: String(r['captured_date']),
             metrics: {
               views: r['views'],
               likes: r['likes'],
@@ -217,6 +261,7 @@ export function createMemoryClientFromConfig(
           stripe_customer_id: e.stripeCustomerId,
           stripe_checkout_session_id: e.stripeCheckoutSessionId,
           stripe_payment_intent_id: e.stripePaymentIntentId,
+          stripe_product_name: e.stripeProductName,
           amount_cents: e.amountCents,
           currency: e.currency,
           status: e.status,
@@ -224,6 +269,24 @@ export function createMemoryClientFromConfig(
           enrolled_at: e.enrolledAt,
         });
         if (error) fail('enrollments', 'insert', error.message);
+      },
+      async upsert(row) {
+        const e = EnrollmentRowSchema.parse(row);
+        const { error } = await db.from('enrollments').upsert(
+          {
+            stripe_customer_id: e.stripeCustomerId,
+            stripe_checkout_session_id: e.stripeCheckoutSessionId,
+            stripe_payment_intent_id: e.stripePaymentIntentId,
+            stripe_product_name: e.stripeProductName,
+            amount_cents: e.amountCents,
+            currency: e.currency,
+            status: e.status,
+            course_level: e.courseLevel,
+            enrolled_at: e.enrolledAt,
+          },
+          { onConflict: 'stripe_checkout_session_id' }
+        );
+        if (error) fail('enrollments', 'upsert', error.message);
       },
       async all() {
         const { data, error } = await db.from('enrollments').select('*');
@@ -234,6 +297,7 @@ export function createMemoryClientFromConfig(
             stripeCustomerId: r['stripe_customer_id'],
             stripeCheckoutSessionId: r['stripe_checkout_session_id'],
             stripePaymentIntentId: r['stripe_payment_intent_id'],
+            stripeProductName: r['stripe_product_name'],
             amountCents: r['amount_cents'],
             currency: r['currency'],
             status: r['status'],

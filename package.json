@@ -10,6 +10,10 @@
     "build": "pnpm -r run build",
     "demo": "pnpm run build && node apps/orchestrator/dist/demo.js",
     "ingest:brand": "pnpm run build && node --env-file=.env packages/memory/scripts/ingest-brand.mjs",
-    "clean": "pnpm -r run clean && rm -rf .data"
+    "auth:tiktok": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/tiktok/auth.js",
+    "auth:youtube": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/youtube/auth.js",
+    "sync": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/sync.js",
+    "clean": "pnpm -r run clean && rm -rf .data",
+    "baseline": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/baseline.js"
   }
 }

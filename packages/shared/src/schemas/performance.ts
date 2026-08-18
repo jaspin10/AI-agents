@@ -15,12 +15,17 @@ export const VideoMetricsSchema = z.object({
 export type VideoMetrics = z.infer<typeof VideoMetricsSchema>;
 
 /** One row of the performance table (§3): metrics per video per platform over time. */
+/** One row of the performance table (§3): metrics per video per platform over time.
+ *  Unique per (contentId, capturedDate) — one snapshot per video per UTC day. */
 export const PerformanceRecordSchema = z.object({
   id: IdSchema,
   /** FK into the content table from M2; platform-native video id until then. */
   contentId: z.string().min(1),
   platform: PlatformSchema,
   capturedAt: IsoDateTimeSchema,
+  /** UTC calendar date of capture, e.g. "2026-08-18" — idempotency key with contentId. */
+  capturedDate: z.iso.date(),
   metrics: VideoMetricsSchema,
 });
 export type PerformanceRecord = z.infer<typeof PerformanceRecordSchema>;
+
