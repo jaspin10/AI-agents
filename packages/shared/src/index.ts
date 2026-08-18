@@ -13,3 +13,7 @@ export * from './schemas/content.js';
 export * from './schemas/conversation.js';
 export * from './schemas/enrollment.js';
 export * from './schemas/demo-log.js';
+export * from './schemas/check-result.js';
+export * from './llm.js';
+export * from './embeddings.js';
+export * from './schemas/suggestion-row.js';

@@ -11,13 +11,17 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@platform/shared": "workspace:*"
+    "@platform/memory": "workspace:^",
+    "@platform/shared": "workspace:*",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@types/node": "^20.19.9",

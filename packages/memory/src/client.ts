@@ -6,26 +6,32 @@ import {
   DemoLogRowSchema,
   EnrollmentRowSchema,
   PerformanceRecordSchema,
+  SuggestionRowSchema,
   type BrandAssetChunk,
   type ContentRow,
   type ConversationRow,
   type DemoLogRow,
   type EnrollmentRow,
   type PerformanceRecord,
+  type SuggestionRow,
 } from '@platform/shared';
 import type { SupabaseConfig } from './config.js';
 
 /**
  * Typed read/write helpers for the §3 memory tables. Insert helpers validate
- * with Zod before writing; read helpers validate after reading. Retrieval
- * (embeddings/pgvector) lands in M4 — until then reads are simple selects.
- * Upsert helpers (M3) key on the migration-0002 unique indexes for idempotent syncs.
+ * with Zod before writing; read helpers validate after reading.
+ * M4 adds: brandAssets.updateEmbeddings + search (pgvector via match_brand_assets),
+ * and the suggestions table (migration 0003).
  */
 export interface MemoryClient {
   brandAssets: {
     upsertChunks: (chunks: BrandAssetChunk[]) => Promise<number>;
     allChunks: (source?: string) => Promise<BrandAssetChunk[]>;
     deleteBySourceVersion: (source: string, version: string) => Promise<void>;
+    /** M4: write embeddings back onto existing chunks, keyed by chunk id. */
+    updateEmbeddings: (updates: Array<{ id: string; embedding: number[] }>) => Promise<void>;
+    /** M4: pgvector similarity search over embedded chunks. */
+    search: (queryEmbedding: number[], matchCount?: number) => Promise<Array<BrandAssetChunk & { similarity: number }>>;
   };
   content: {
     insert: (row: ContentRow) => Promise<void>;
@@ -49,6 +55,10 @@ export interface MemoryClient {
   demoLog: {
     insert: (row: DemoLogRow) => Promise<void>;
     all: () => Promise<DemoLogRow[]>;
+  };
+  suggestions: {
+    insert: (row: SuggestionRow) => Promise<void>;
+    all: () => Promise<SuggestionRow[]>;
   };
 }
 
@@ -107,6 +117,35 @@ export function createMemoryClientFromConfig(
           .eq('source', source)
           .eq('version', version);
         if (error) fail('brand_assets', 'delete', error.message);
+      },
+      async updateEmbeddings(updates) {
+        for (const u of updates) {
+          const { error } = await db
+            .from('brand_assets')
+            .update({ embedding: u.embedding })
+            .eq('id', u.id);
+          if (error) fail('brand_assets', 'update embedding', error.message);
+        }
+      },
+      async search(queryEmbedding, matchCount = 3) {
+        const { data, error } = await db.rpc('match_brand_assets', {
+          query_embedding: queryEmbedding,
+          match_count: matchCount,
+        });
+        if (error) fail('brand_assets', 'search', error.message);
+        return (data ?? []).map((r: Record<string, unknown>) => ({
+          ...BrandAssetChunkSchema.parse({
+            id: r['id'],
+            source: r['source'],
+            version: r['version'],
+            chunkIndex: r['chunk_index'],
+            heading: r['heading'],
+            content: r['content'],
+            // Shim: match_brand_assets does not return ingested_at; harmless for retrieval.
+            ingestedAt: new Date().toISOString(),
+          }),
+          similarity: Number(r['similarity']),
+        }));
       },
     },
     content: {
@@ -333,6 +372,48 @@ export function createMemoryClientFromConfig(
               r['converted_at'] === null
                 ? null
                 : new Date(String(r['converted_at'])).toISOString(),
+          })
+        );
+      },
+    },
+    suggestions: {
+      async insert(row) {
+        const s = SuggestionRowSchema.parse(row);
+        const { error } = await db.from('suggestions').insert({
+          id: s.id,
+          run_id: s.runId,
+          task_id: s.taskId,
+          agent: s.agent,
+          kind: s.kind,
+          payload: s.payload,
+          hypothesis: s.hypothesis,
+          banned_topics_passed: s.bannedTopicsPassed,
+          banned_topics_reasons: s.bannedTopicsReasons,
+          brand_voice_passed: s.brandVoicePassed,
+          brand_voice_reasons: s.brandVoiceReasons,
+          status: s.status,
+          created_at: s.createdAt,
+        });
+        if (error) fail('suggestions', 'insert', error.message);
+      },
+      async all() {
+        const { data, error } = await db.from('suggestions').select('*');
+        if (error) fail('suggestions', 'select', error.message);
+        return (data ?? []).map((r) =>
+          SuggestionRowSchema.parse({
+            id: r['id'],
+            runId: r['run_id'],
+            taskId: r['task_id'],
+            agent: r['agent'],
+            kind: r['kind'],
+            payload: r['payload'],
+            hypothesis: r['hypothesis'],
+            bannedTopicsPassed: r['banned_topics_passed'],
+            bannedTopicsReasons: r['banned_topics_reasons'],
+            brandVoicePassed: r['brand_voice_passed'],
+            brandVoiceReasons: r['brand_voice_reasons'],
+            status: r['status'],
+            createdAt: new Date(String(r['created_at'])).toISOString(),
           })
         );
       },

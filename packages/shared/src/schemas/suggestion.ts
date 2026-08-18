@@ -20,7 +20,8 @@ export const NextVideoSuggestionSchema = SuggestionBaseSchema.extend({
   theme: z.string().min(1),
   hook: z.string().min(1),
   format: z.string().min(1),
-  hypothesis: HypothesisTagSchema,
+  /** Nullable: with content.hypothesis NULL everywhere today, honest "no tag" beats a guess. */
+  hypothesis: HypothesisTagSchema.nullable(),
 });
 export type NextVideoSuggestion = z.infer<typeof NextVideoSuggestionSchema>;
 
@@ -31,23 +32,10 @@ export const CounterOfferSuggestionSchema = SuggestionBaseSchema.extend({
   objection: z.string().min(1),
   offer: z.string().min(1),
 });
-export type CounterOfferSuggestion = z.infer<
-  typeof CounterOfferSuggestionSchema
->;
-
-/**
- * M1 only: structured echo used by the stub agent to prove contract, routing and
- * logging end to end. Remove this variant when the real analyst lands (M4).
- */
-export const EchoSuggestionSchema = SuggestionBaseSchema.extend({
-  kind: z.literal('echo'),
-  echo: z.record(z.string(), z.unknown()),
-});
-export type EchoSuggestion = z.infer<typeof EchoSuggestionSchema>;
+export type CounterOfferSuggestion = z.infer<typeof CounterOfferSuggestionSchema>;
 
 export const SuggestionSchema = z.discriminatedUnion('kind', [
   NextVideoSuggestionSchema,
   CounterOfferSuggestionSchema,
-  EchoSuggestionSchema,
 ]);
 export type Suggestion = z.infer<typeof SuggestionSchema>;
