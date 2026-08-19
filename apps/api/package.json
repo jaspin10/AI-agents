@@ -1,0 +1,22 @@
+{
+    "name": "@platform/api",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "main": "./dist/index.js",
+    "scripts": {
+      "build": "tsc -p tsconfig.json",
+      "clean": "rm -rf dist",
+      "start": "node --env-file=../../.env dist/index.js"
+    },
+    "dependencies": {
+      "@hono/node-server": "^1.13.0",
+      "@platform/memory": "workspace:*",
+      "@platform/shared": "workspace:*",
+      "hono": "^4.6.0"
+    },
+    "devDependencies": {
+      "@types/node": "^20.19.9",
+      "typescript": "^5.9.2"
+    }
+  }

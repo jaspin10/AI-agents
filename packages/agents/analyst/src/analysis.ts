@@ -50,6 +50,8 @@ function latestByContent(records: PerformanceRecord[]): Map<string, PerformanceR
 
 /**
  * Joins content and latest performance, computes derived signals.
+ * NOTE: performance.content_id holds the platform-native video id (M3 sync),
+ * so the join key is content.platformVideoId, NOT the content UUID.
  * "Content vs luck" ranking signal: retentionPct on YouTube (real audience
  * behaviour), shareRate then engagementRate on TikTok (no retention exists).
  */
@@ -58,8 +60,7 @@ export function analyse(content: ContentRow[], performance: PerformanceRecord[])
   const videos: VideoAnalysis[] = [];
 
   for (const row of content) {
-    if (row.id === undefined) continue;
-    const perf = latest.get(row.id);
+    const perf = latest.get(row.platformVideoId);
     if (perf === undefined) continue;
     const m = perf.metrics;
     videos.push({

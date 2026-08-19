@@ -1,0 +1,35 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0d0b14; --panel: #17131f; --panel2: #1e1929;
+  --border: #2a2438; --text: #e8e4f0; --dim: #8b84a0;
+  --accent: #8b5cf6; --accent2: #a78bfa;
+  --green: #34d399; --red: #f87171; --amber: #fbbf24;
+}
+body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 210px; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 20px 12px; position: sticky; top: 0; height: 100vh;
+}
+.logo { font-weight: 700; font-size: 15px; padding: 0 10px 20px; color: var(--accent2); }
+.nav-item {
+  display: block; width: 100%; text-align: left; padding: 9px 10px; margin-bottom: 4px;
+  background: none; border: none; border-radius: 8px; color: var(--dim);
+  font: inherit; cursor: pointer;
+}
+.nav-item:hover { background: var(--panel2); color: var(--text); }
+.nav-item.active { background: var(--accent); color: #fff; }
+.main { flex: 1; padding: 28px; max-width: 1200px; }
+.h1 { font-size: 20px; font-weight: 700; margin-bottom: 18px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-bottom: 14px;
+}
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge.green { background: rgba(52,211,153,.15); color: var(--green); }
+.badge.red { background: rgba(248,113,113,.15); color: var(--red); }
+.badge.amber { background: rgba(251,191,36,.15); color: var(--amber); }
+.dim { color: var(--dim); }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--dim); font-weight: 600; font-size: 12px; cursor: pointer; user-select: none; }

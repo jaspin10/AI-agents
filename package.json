@@ -16,6 +16,7 @@
     "clean": "pnpm -r run clean && rm -rf .data",
     "baseline": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/baseline.js",
     "embed:brand": "pnpm build && node --env-file=.env packages/memory/scripts/embed-brand.mjs",
-    "suggest": "pnpm build && node --env-file=.env apps/orchestrator/dist/suggest.js"
+    "suggest": "pnpm build && node --env-file=.env apps/orchestrator/dist/suggest.js",
+    "dash": "pnpm build && node --env-file=.env apps/api/dist/index.js & pnpm --filter @platform/dash dev"
   }
 }
