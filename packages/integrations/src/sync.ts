@@ -110,7 +110,16 @@ async function existingTags(dryRun: boolean): Promise<HypothesisTagMap> {
 async function syncTikTok(writer: Writer, csvTags: HypothesisTagMap, dbTags: HypothesisTagMap): Promise<void> {
   const config = readTikTokConfig();
   if (config === null) throw new Error('TikTok env vars not configured — skipping requires removing it via --platform.');
-  const client = await TikTokClient.create(config);
+
+  // M5 token persistence: tokens table is authoritative; env is the one-time seed.
+  // The exchange in TikTokClient.create rotates the token, so we persist the new
+  // one immediately — even on --dry-run, otherwise a dry run burns the token.
+  const memory = createMemoryClient();
+  const storedToken = await memory.tokens.get('tiktok');
+  const client = await TikTokClient.create(config, storedToken ?? undefined);
+  await memory.tokens.set('tiktok', client.rotatedRefreshToken);
+  logger.info('tiktok: rotated refresh token persisted to tokens table');
+
   const snapshot = await client.snapshot();
   logger.info(`tiktok: ${snapshot.videos.length} videos, ${snapshot.followerCount} followers`);
 

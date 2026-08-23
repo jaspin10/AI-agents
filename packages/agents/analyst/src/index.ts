@@ -4,6 +4,7 @@ import {
   ContractViolationError,
   NextVideoSuggestionSchema,
   NextVideoTaskPayloadSchema,
+  PlatformError,
   createLlmClient,
   type AgentContext,
   type AgentContract,
@@ -22,6 +23,30 @@ export const ANALYST_AGENT_NAME = 'analyst';
 
 const MAX_RETRIES = 2;
 
+/** §6 hard spend cap: refused runs carry this stable code in agent_logs. */
+export class LlmCapExceededError extends PlatformError {
+  constructor(used: number, cap: number, month: string) {
+    super(
+      'LLM_CAP_EXCEEDED',
+      `LLM monthly cap reached for ${month}: ${used} tokens used, cap is ${cap} (LLM_MONTHLY_CAP). ` +
+        'Run refused. Raise the cap or wait for the next month.'
+    );
+  }
+}
+
+/** Total tokens (input+output) allowed per UTC month. Unset/empty = no cap. */
+function readMonthlyCap(): number | null {
+  const raw = process.env['LLM_MONTHLY_CAP'];
+  if (raw === undefined || raw.trim() === '') return null;
+  const cap = Number(raw);
+  if (!Number.isFinite(cap) || cap <= 0) {
+    throw new ContractViolationError(
+      `LLM_MONTHLY_CAP must be a positive number of tokens, got '${raw}'.`
+    );
+  }
+  return cap;
+}
+
 /** Shape the LLM must return from generation. */
 const GenerationSchema = z.object({
   suggestions: z.array(
@@ -39,6 +64,10 @@ const OutputSchema = z.object({
   suggestions: z.array(NextVideoSuggestionSchema),
   rejected: z.number().int().nonnegative(),
   totalTokens: z.object({ input: z.number(), output: z.number() }),
+  /** M5: cap context for reports — null when no cap is configured. */
+  capStatus: z
+    .object({ month: z.string(), used: z.number(), cap: z.number() })
+    .nullable(),
 });
 export type AnalystOutput = z.infer<typeof OutputSchema>;
 
@@ -59,6 +88,20 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
     throw new ContractViolationError('ANTHROPIC_API_KEY missing — the analyst cannot run without it.');
   }
   const memory = createMemoryClient();
+
+  // 0) §6 hard cap — checked BEFORE any LLM call.
+  const cap = readMonthlyCap();
+  const month = new Date().toISOString().slice(0, 7);
+  let usedThisMonth = 0;
+  if (cap !== null) {
+    usedThisMonth = await memory.llmUsage.monthlyTotal(month);
+    if (usedThisMonth >= cap) {
+      throw new LlmCapExceededError(usedThisMonth, cap, month);
+    }
+    context.logger.info(
+      `llm cap check: ${usedThisMonth}/${cap} tokens used in ${month}${usedThisMonth >= cap * 0.8 ? ' — WARNING: past 80%' : ''}`
+    );
+  }
 
   // 1) Read data.
   const [content, performance, brandChunks] = await Promise.all([
@@ -147,7 +190,31 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
     }
   }
 
-  return { suggestions: surfaced, rejected: rejectedCount, totalTokens: tokens };
+  // 4) Record spend to the ledger (§6). Failure to record must not lose the run's
+  // suggestions — log loudly instead, the ledger self-corrects next month.
+  try {
+    await memory.llmUsage.record({
+      runId: context.runId,
+      agent: ANALYST_AGENT_NAME,
+      model: 'claude-sonnet-4-6',
+      inputTokens: tokens.input,
+      outputTokens: tokens.output,
+    });
+  } catch (error) {
+    context.logger.error(
+      `failed to record llm_usage row: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  return {
+    suggestions: surfaced,
+    rejected: rejectedCount,
+    totalTokens: tokens,
+    capStatus:
+      cap === null
+        ? null
+        : { month, used: usedThisMonth + tokens.input + tokens.output, cap },
+  };
 }
 
 /**
@@ -158,7 +225,7 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
  */
 export const analystAgent: AgentContract = AgentContractSchema.parse({
   name: ANALYST_AGENT_NAME,
-  description: 'Content analyst v1 (M4): analyses performance, suggests next videos with banned-topics + brand-voice checks.',
+  description: 'Content analyst v1 (M4): analyses performance, suggests next videos with banned-topics + brand-voice checks. M5: §6 hard monthly LLM cap.',
   capabilities: ['analysis.next_video'],
   allowedTools: ['tiktok.snapshot', 'youtube.snapshot', 'stripe.enrollments'],
   inputSchema: NextVideoTaskPayloadSchema,

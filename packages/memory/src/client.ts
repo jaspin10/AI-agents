@@ -22,6 +22,8 @@ import type { SupabaseConfig } from './config.js';
  * with Zod before writing; read helpers validate after reading.
  * M4 adds: brandAssets.updateEmbeddings + search (pgvector via match_brand_assets),
  * and the suggestions table (migration 0003).
+ * M5 adds: suggestions.updateStatus (feedback write path), tokens (rotating
+ * OAuth store, migration 0004), llmUsage (§6 monthly spend cap, migration 0004).
  */
 export interface MemoryClient {
   brandAssets: {
@@ -59,6 +61,18 @@ export interface MemoryClient {
   suggestions: {
     insert: (row: SuggestionRow) => Promise<void>;
     all: () => Promise<SuggestionRow[]>;
+    /** M5 feedback write path: flip surfaced → posted | skipped. */
+    updateStatus: (id: string, status: 'posted' | 'skipped') => Promise<void>;
+  };
+  tokens: {
+    /** Rotating OAuth token store (TikTok). Null when no row exists yet. */
+    get: (provider: string) => Promise<string | null>;
+    set: (provider: string, refreshToken: string) => Promise<void>;
+  };
+  llmUsage: {
+    record: (row: { runId: string; agent: string; model: string; inputTokens: number; outputTokens: number }) => Promise<void>;
+    /** Total tokens (input+output) for a 'YYYY-MM' UTC month — the §6 cap query. */
+    monthlyTotal: (month: string) => Promise<number>;
   };
 }
 
@@ -415,6 +429,59 @@ export function createMemoryClientFromConfig(
             status: r['status'],
             createdAt: new Date(String(r['created_at'])).toISOString(),
           })
+        );
+      },
+      async updateStatus(id, status) {
+        const { error } = await db
+          .from('suggestions')
+          .update({ status })
+          .eq('id', id);
+        if (error) fail('suggestions', 'update status', error.message);
+      },
+    },
+    tokens: {
+      async get(provider) {
+        const { data, error } = await db
+          .from('tokens')
+          .select('refresh_token')
+          .eq('provider', provider)
+          .maybeSingle();
+        if (error) fail('tokens', 'select', error.message);
+        return data === null ? null : String(data['refresh_token']);
+      },
+      async set(provider, refreshToken) {
+        const { error } = await db.from('tokens').upsert(
+          {
+            provider,
+            refresh_token: refreshToken,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'provider' }
+        );
+        if (error) fail('tokens', 'set', error.message);
+      },
+    },
+    llmUsage: {
+      async record(row) {
+        const { error } = await db.from('llm_usage').insert({
+          run_id: row.runId,
+          agent: row.agent,
+          model: row.model,
+          input_tokens: row.inputTokens,
+          output_tokens: row.outputTokens,
+          month: new Date().toISOString().slice(0, 7),
+        });
+        if (error) fail('llm_usage', 'insert', error.message);
+      },
+      async monthlyTotal(month) {
+        const { data, error } = await db
+          .from('llm_usage')
+          .select('input_tokens, output_tokens')
+          .eq('month', month);
+        if (error) fail('llm_usage', 'select', error.message);
+        return (data ?? []).reduce(
+          (sum, r) => sum + Number(r['input_tokens']) + Number(r['output_tokens']),
+          0
         );
       },
     },

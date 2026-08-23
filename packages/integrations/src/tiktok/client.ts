@@ -45,8 +45,8 @@ export interface TikTokSnapshot {
 
 /**
  * Read-only TikTok client. Exchanges the refresh token for an access token
- * once per construction; TikTok rotates refresh tokens, so the new value is
- * surfaced for the caller to report (env update is manual, by design).
+ * once per construction; TikTok rotates refresh tokens — since M5 the rotated
+ * value is persisted to the Supabase tokens table by the sync (env is seed only).
  */
 export class TikTokClient {
   private constructor(
@@ -54,8 +54,17 @@ export class TikTokClient {
     readonly rotatedRefreshToken: string
   ) {}
 
-  static async create(config: TikTokConfig): Promise<TikTokClient> {
-    if (config.refreshToken === undefined) {
+  /**
+   * refreshTokenOverride (M5): current token from the Supabase tokens table.
+   * Falls back to config (env) — the one-time seed. Exchange rotates the token;
+   * the caller MUST persist rotatedRefreshToken or the next run locks out.
+   */
+  static async create(
+    config: TikTokConfig,
+    refreshTokenOverride?: string
+  ): Promise<TikTokClient> {
+    const refreshToken = refreshTokenOverride ?? config.refreshToken;
+    if (refreshToken === undefined) {
       throw new Error(
         'TIKTOK_REFRESH_TOKEN missing — run `pnpm auth:tiktok` first.'
       );
@@ -63,7 +72,7 @@ export class TikTokClient {
     const tokens = await refreshTikTokAccessToken(
       config.clientKey,
       config.clientSecret,
-      config.refreshToken
+      refreshToken
     );
     return new TikTokClient(tokens.accessToken, tokens.refreshToken);
   }

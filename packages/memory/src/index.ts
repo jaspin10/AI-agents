@@ -8,6 +8,7 @@ export { JsonFileLogStore, type LogStore } from './log-store.js';
 export { readSupabaseConfig, type SupabaseConfig } from './config.js';
 export { SupabaseLogStore } from './supabase-log-store.js';
 export { createMemoryClientFromConfig, type MemoryClient } from './client.js';
+export { monthlyKpis, type MonthlyKpis } from './kpis.js';
 
 /**
  * Selects the LogStore implementation from the environment (§8 M1 decision:
