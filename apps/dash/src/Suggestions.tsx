@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getJson, type SuggestionRow } from './api.js';
+import { getJson, setSuggestionStatus, type SuggestionRow } from './api.js';
 
 function CheckBadge({ label, passed, reasons }: { label: string; passed: boolean; reasons: string[] }) {
   return (
@@ -16,10 +16,25 @@ const STATUS_COLOR: Record<SuggestionRow['status'], string> = {
 export function Suggestions() {
   const [rows, setRows] = useState<SuggestionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     getJson<SuggestionRow[]>('/api/suggestions').then(setRows).catch((e: Error) => setError(e.message));
   }, []);
+
+  async function flip(id: string, status: 'posted' | 'skipped'): Promise<void> {
+    setBusy(id);
+    try {
+      await setSuggestionStatus(id, status);
+      setRows((current) =>
+        current === null ? null : current.map((r) => (r.id === id ? { ...r, status } : r))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   if (error !== null) return <div className="card dim">API error: {error} — is the API running? (pnpm dash)</div>;
   if (rows === null) return <div className="card dim">Loading…</div>;
@@ -43,7 +58,19 @@ export function Suggestions() {
           <div><span className="dim">Format:</span> {s.payload.format ?? '—'}</div>
           <div><span className="dim">Hypothesis:</span> {s.hypothesis ?? 'untagged'}</div>
           <div style={{ marginTop: 8 }} className="dim">{s.payload.rationale ?? ''}</div>
-          <div style={{ marginTop: 8, fontSize: 12 }} className="dim">{new Date(s.createdAt).toLocaleString()}</div>
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 12 }} className="dim">{new Date(s.createdAt).toLocaleString()}</span>
+            {s.status === 'surfaced' ? (
+              <span style={{ display: 'flex', gap: 8 }}>
+                <button disabled={busy === s.id} onClick={() => void flip(s.id, 'posted')}>
+                  ✓ Posted
+                </button>
+                <button disabled={busy === s.id} onClick={() => void flip(s.id, 'skipped')}>
+                  ✗ Skipped
+                </button>
+              </span>
+            ) : null}
+          </div>
         </div>
       ))}
     </>

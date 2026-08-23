@@ -9,14 +9,16 @@
   "scripts": {
     "build": "pnpm -r run build",
     "demo": "pnpm run build && node apps/orchestrator/dist/demo.js",
-    "ingest:brand": "pnpm run build && node --env-file=.env packages/memory/scripts/ingest-brand.mjs",
-    "auth:tiktok": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/tiktok/auth.js",
-    "auth:youtube": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/youtube/auth.js",
-    "sync": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/sync.js",
     "clean": "pnpm -r run clean && rm -rf .data",
-    "baseline": "pnpm --filter @platform/integrations build && node --env-file=.env packages/integrations/dist/baseline.js",
-    "embed:brand": "pnpm build && node --env-file=.env packages/memory/scripts/embed-brand.mjs",
-    "suggest": "pnpm build && node --env-file=.env apps/orchestrator/dist/suggest.js",
-    "dash": "pnpm build && node --env-file=.env apps/api/dist/index.js & pnpm --filter @platform/dash dev"
+    "ingest:brand": "node packages/memory/scripts/ingest-brand.mjs",
+    "auth:tiktok": "pnpm --filter @platform/integrations run build && node --env-file=.env packages/integrations/dist/tiktok/auth.js",
+    "auth:youtube": "pnpm --filter @platform/integrations run build && node --env-file=.env packages/integrations/dist/youtube/auth.js",
+    "sync": "pnpm run build && node --env-file=.env packages/integrations/dist/sync.js",
+    "baseline": "pnpm run build && node --env-file=.env packages/integrations/dist/baseline.js",
+    "embed:brand": "node --env-file=.env packages/memory/scripts/embed-brand.mjs",
+    "suggest": "pnpm run build && node --env-file=.env apps/orchestrator/dist/suggest.js",
+    "dash": "pnpm run build && (node --env-file=.env apps/api/dist/index.js & pnpm --filter @platform/dash run dev)",
+    "slack": "pnpm run build && node --env-file=.env apps/slack/dist/index.js",
+    "report": "pnpm run build && node --env-file=.env apps/slack/dist/report.js"
   }
 }
