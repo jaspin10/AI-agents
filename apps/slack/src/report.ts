@@ -117,7 +117,9 @@ async function main(): Promise<void> {
   logger.info('weekly report posted');
 }
 
-main().catch((error: unknown) => {
+main()
+  .then(() => process.exit(0))
+  .catch((error: unknown) => {
     if (error instanceof Error) {
       logger.error(error.message, {
         cause: error.cause instanceof Error ? error.cause.message : String(error.cause ?? ''),
@@ -126,5 +128,5 @@ main().catch((error: unknown) => {
     } else {
       logger.error(String(error));
     }
-    process.exitCode = 1;
+    process.exit(1);
   });
