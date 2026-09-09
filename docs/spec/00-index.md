@@ -1,6 +1,6 @@
 # AI Marketing & Sales Analyst Platform — Spec Index
 
-Status: separate, working project. M1–M5 substantially complete (M5 NOT fully closed — see punch-list.md). NOT yet linked to the portal (integration is a separate, later effort — Option A "link, don't merge", never a repo merge).
+Status: separate, working project. M1–M5 substantially complete (M5 NOT fully closed — see punch-list.md). Portal integration in progress (Option A "link, don't merge", never a repo merge — steps 1–4 done, see portal-integration.md).
 
 **How to use:** read whichever file below covers the task, not the whole directory. CLAUDE.md at the repo root has standing code rules. Working branch is `milestone-2`, not `main` (main is an older skeleton).
 
@@ -9,6 +9,7 @@ Status: separate, working project. M1–M5 substantially complete (M5 NOT fully 
 - `02-built-status.md` — what's ✅ built, what's ⚠ open inside the analyst project itself
 - `punch-list.md` — M5's remaining Step 13/14 punch list — READ FIRST before touching sync/cron/Railway
 - `portal-integration.md` — the locked "link, don't merge" integration plan with the portal repo
+- `content-analysis.md` — the X-series: Eknoor's per-video analysis input, derived metrics, TikTok Business API migration, ad analytics, agent correlation
 - `working-style.md` — quirks specific to this repo (jsh, heredocs, generics, packages/shared)
 
 ## Sibling project
