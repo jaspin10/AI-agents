@@ -23,7 +23,9 @@ Close the loop between creative choices and outcomes. Eknoor (marketing) watches
 - **No ad data anywhere.** No spend, no boosted flag, no paid/organic split.
 - **No enrollment attribution.** Stripe enrollments carry no link to a video. Any "what drives enrollments" answer is time-correlation only. Say so in every output that touches it.
 - Write path: `POST /api/suggestions/:id/status` uses a bearer `API_WRITE_TOKEN`. The dash's `VITE_API_WRITE_TOKEN` is baked into the client bundle at build time and **must never be set on a hosted build**.
-- Current dash (`apps/dash/src/App.tsx`) is a single-page client with five sidebar tabs — Suggestions, Idea map, Performance, KPIs, Run log — switched by local React state, not routes. One HTTP Basic password currently gates the whole bundle and every `/api/*` route beneath it; there is no per-route authorization by username yet. `Run log` (`/api/logs`) is an engineering debug view — every agent tool call, status, duration, error — with no revenue or content data in it.
+- Current dash (`apps/dash/src/App.tsx`) is a single-page client with five sidebar tabs — Suggestions, Idea map, Performance, KPIs, Run log — switched by local React state, not routes. One HTTP Basic password currently gates the whole bundle and every `/api/*` route beneath it; there is no per-route authorization by username yet.
+- `Run log` (`/api/logs`) is an engineering debug view — every agent tool call, status, duration, error — with no revenue or content data in it.
+- **`KPIs` (`/api/kpis` + `/api/kpis/monthly`) shows revenue directly.** `Kpis.tsx`'s monthly breakdown table renders a `Revenue` column in dollars (`revenueCents` from Stripe-visible enrollments) alongside enrollments, videos posted, tagged count, and suggestion counts. Revenue is not separable from the rest of that endpoint's response without a new endpoint — the two are fetched and rendered together.
 
 ## Correction to a prior belief
 
@@ -40,8 +42,10 @@ Goal: a page Eknoor can use on day one to describe videos, with the existing met
 
 **Visibility decision — LOCKED 2026-09-09 (Jas confirmed):**
 - Two Basic-auth users: `owner` and `marketing`. Role = which password.
-- Enforcement is **server-side, by authenticated username, inside `apps/api`** — not just hiding sidebar buttons in the client. The whole `apps/dash` bundle is one JS file today; hiding a nav button does not stop a request straight to `/api/kpis/monthly`. Every route handler must check which username authenticated and refuse `marketing` where it doesn't belong, same enforcement style as the existing `API_WRITE_TOKEN` check.
-- `marketing` password gets: the new `/analysis` page and its data (video list + metrics + the `content_analysis` fields), Suggestions, Idea map, Performance, KPIs. **Not** Run log — it's an agent-debugging view (tool calls, status, duration, errors), nothing Eknoor needs and nothing to accidentally expose.
+- Enforcement is **server-side, by authenticated username, inside `apps/api`** — not just hiding sidebar buttons in the client. The whole `apps/dash` bundle is one JS file today; hiding a nav button does not stop a request straight to an API route. Every route handler must check which username authenticated and refuse `marketing` where it doesn't belong, same enforcement style as the existing `API_WRITE_TOKEN` check.
+- `marketing` password gets: the new `/analysis` page and its data (video list + metrics + the `content_analysis` fields), Suggestions, Idea map, Performance. **No revenue, anywhere.**
+- `marketing` password does NOT get: Run log (agent debug view, not marketing-relevant) or KPIs (revenue is embedded in its response and not separable without a new endpoint — see above).
+- If a revenue-free KPI view (enrollment count, videos posted, tagged count, suggestion counts — no dollar figures) is wanted for marketing later, that is a new endpoint, not a reuse of `/api/kpis/monthly`. Not in X1 scope; note it as a possible X1.5 if Jas wants it.
 - `owner` password keeps everything, unchanged.
 - This is a pragmatic answer to `portal-integration.md`'s open per-role question, scoped to this dash — it does not resolve that question for the portal tab itself.
 - Map the structured fields onto the existing `hook` / `format` / `hypothesis` columns on `content` where they fit, so the current suggestions loop benefits immediately.
