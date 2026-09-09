@@ -3,6 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { readFile } from 'node:fs/promises';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { basicAuth } from 'hono/basic-auth';
 import { createMemoryClient, monthlyKpis } from '@platform/memory';
 import { createLogger } from '@platform/shared';
 import { z } from 'zod';
@@ -24,6 +25,29 @@ app.use(
     origin: (origin) => (DEV_ORIGINS.includes(origin) ? origin : null),
   })
 );
+
+/**
+ * Front door (M4.5, interim). ONE shared password over the whole surface —
+ * dash and every /api/* route alike. This is not the per-role visibility
+ * story: that decision is still open and lands in Step 5. This exists only
+ * so the service can sit on a public URL without publishing revenue and
+ * content data to anyone who finds it.
+ *
+ * FAILS CLOSED. With DASH_PASSWORD unset every request is refused, including
+ * locally — a missing password must never mean an open door on a public host.
+ * For local `pnpm dash`, put DASH_USER / DASH_PASSWORD in .env.
+ */
+const dashUser = process.env['DASH_USER'] ?? 'owner';
+const dashPassword = process.env['DASH_PASSWORD'];
+
+if (dashPassword === undefined || dashPassword.trim() === '') {
+  logger.warn('DASH_PASSWORD unset — every request will be refused');
+  app.use('*', async (c) =>
+    c.text('DASH_PASSWORD is not set on this deployment — access refused.', 503)
+  );
+} else {
+  app.use('*', basicAuth({ username: dashUser, password: dashPassword }));
+}
 
 const memory = createMemoryClient();
 
