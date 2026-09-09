@@ -1,4 +1,6 @@
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { readFile } from 'node:fs/promises';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { createMemoryClient, monthlyKpis } from '@platform/memory';
@@ -8,8 +10,20 @@ import { z } from 'zod';
 const logger = createLogger('api');
 const app = new Hono();
 
-// Local dashboard only — Vite dev server origin.
-app.use('/api/*', cors({ origin: (origin) => origin }));
+/**
+ * Single-origin hosting (M4.5 Step 4): this process serves the built dash as
+ * well as /api/*, so the browser never makes a cross-origin request and no
+ * API base URL is needed. CORS therefore exists only for local `pnpm dash`,
+ * where Vite runs on 5173 and proxies here. Any other origin is refused.
+ */
+const DEV_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+
+app.use(
+  '/api/*',
+  cors({
+    origin: (origin) => (DEV_ORIGINS.includes(origin) ? origin : null),
+  })
+);
 
 const memory = createMemoryClient();
 
@@ -91,9 +105,28 @@ app.get('/api/logs', async (c) => {
   return c.json(rows.slice(-100).reverse());
 });
 
-const port = 8787;
+/**
+ * Static dash. Paths are relative to the process CWD, which on Railway is the
+ * repo root (the start command is `node apps/api/dist/index.js`). Registered
+ * AFTER /api/* so an API route always wins.
+ */
+const DASH_DIR = './apps/dash/dist';
+
+app.use('/assets/*', serveStatic({ root: DASH_DIR }));
+
+// SPA fallback — every non-API path returns index.html.
+app.get('*', async (c) => {
+  try {
+    const html = await readFile(`${DASH_DIR}/index.html`, 'utf8');
+    return c.html(html);
+  } catch {
+    return c.text('dash build not found — run `pnpm build` first', 500);
+  }
+});
+
+const port = Number(process.env['PORT'] ?? 8787);
 serve({ fetch: app.fetch, port }, () =>
   logger.info(
-    `API on http://localhost:${port}${writeToken === undefined || writeToken.trim() === '' ? ' (writes DISABLED — set API_WRITE_TOKEN)' : ''}`
+    `API + dash on port ${port}${writeToken === undefined || writeToken.trim() === '' ? ' (writes DISABLED — set API_WRITE_TOKEN)' : ''}`
   )
 );

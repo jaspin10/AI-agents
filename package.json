@@ -7,6 +7,9 @@
     "node": ">=20"
   },
   "packageManager": "pnpm@10.15.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
   "scripts": {
     "build": "pnpm -r run build",
     "demo": "pnpm run build && node apps/orchestrator/dist/demo.js",

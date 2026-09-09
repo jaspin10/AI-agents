@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
       "dev": "vite",
-      "build": "echo 'dash: no build in workspace build (vite dev only for now)'",
+      "build": "vite build",
       "clean": "rm -rf dist"
     },
     "dependencies": {
