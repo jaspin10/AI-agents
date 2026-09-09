@@ -6,7 +6,7 @@
 - Ingestion: TikTok Display API (Sandbox; ⚠ retention/watch-time permanently unavailable from the API — null forever, never inferred) · YouTube Data + Analytics APIs (retention available; consent screen published to Production so refresh tokens persist) · Stripe restricted read-only `rk_live_` key. `pnpm sync` idempotent, per-platform failure isolation.
 - Analyst agent v1: reads content+performance, LLM generates 1–3 next-video suggestions, each passing two unskippable in-code LLM checks (banned topics + brand voice) before surfacing; rejected candidates persisted too.
 - Slack delivery (Railway): weekly report to #analyst, `/nextvideo` with ✓/✗ interactive buttons wired end-to-end to suggestion status in SQL.
-- Monthly KPI computation + endpoints; hard `LLM_MONTHLY_CAP` guard on the agent (⚠ coded but unconfigured on Railway — see `punch-list.md` item 6).
+- Monthly KPI computation + endpoints; hard `LLM_MONTHLY_CAP` guard on the agent — ✅ configured on Railway 2026-09-09 (`2000000`, set on both `nightly-sync` and `weekly-report`; see `punch-list.md` item 6).
 
 ## ✅ Milestone 4.5: Read-only dashboard — COMPLETED 2026-08-18
 
@@ -51,7 +51,7 @@
 ⚠ **Deployment gap:** `apps/api` + `apps/dash` are built and working but run ONLY as a local dev server. Hosting them on Railway is integration Step 4, blocked on `punch-list.md`. **This is why the portal's Marketing tab can't be built yet — there is no hosted URL to point it at.**
 
 ## ⚠ Open items inside the analyst project (pre-integration)
-- Railway nightly-sync cron misconfigured — see `punch-list.md` (two independent causes: a wrong start command AND a missing `process.exit`; the code half is now fixed, the Railway half is not).
+- Railway cron config — ✅ fixed 2026-09-09, pending final verification. Both causes of the nightly-sync hang are now closed: the missing `process.exit` (merged in PR #1) and the start command (`nightly-sync` had none, so it inherited `railway.json`'s orchestrator command). `weekly-report` was separately broken — report command in `buildCommand` instead of `startCommand`, and no env vars at all. See `punch-list.md`. Remaining: items 5 and 7 (a manual run, then two consecutive clean nightly syncs).
 - Instagram blocked (external): the FB Page (645259428673564) sits in a business portfolio owned by the website contractor; Page is linked to the wrong IG profile. Resolution = contractor grants portfolio admin or transfers the Page. Env vars scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended). Also a standing business risk independent of this project.
 - Hypothesis taxonomy v2: team member open-coding the 192-video back-catalogue; until consolidated, `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only. Tag enum is swappable by design (no hard-coded literals in prompts).
 - TikTok refresh token rotates per sync; re-run `pnpm auth:tiktok` if auth fails after long gaps.
