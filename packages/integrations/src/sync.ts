@@ -236,7 +236,7 @@ async function syncStripe(writer: Writer): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
+async function main(): Promise<boolean> {
   const options = parseArgs(process.argv.slice(2));
   logger.info(
     `sync starting — platforms: ${options.platforms.join(', ')}${options.dryRun ? ' (DRY RUN — nothing will be written)' : ''}`
@@ -267,11 +267,17 @@ async function main(): Promise<void> {
   if (options.dryRun) console.log('(dry run — nothing was written)');
   if (failures.length > 0) {
     console.log(`FAILED: ${failures.map((f) => f.platform).join(', ')}`);
-    process.exitCode = 1;
   }
+
+  return failures.length === 0;
 }
 
-main().catch((error: unknown) => {
-  logger.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+// Explicit process.exit is required, not just process.exitCode: open Supabase
+// and HTTP handles keep the Node event loop alive, so a Railway cron execution
+// hangs indefinitely instead of completing. Matches apps/slack/src/report.ts.
+main()
+  .then((ok: boolean) => process.exit(ok ? 0 : 1))
+  .catch((error: unknown) => {
+    logger.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
