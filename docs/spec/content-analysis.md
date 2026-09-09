@@ -23,6 +23,7 @@ Close the loop between creative choices and outcomes. Eknoor (marketing) watches
 - **No ad data anywhere.** No spend, no boosted flag, no paid/organic split.
 - **No enrollment attribution.** Stripe enrollments carry no link to a video. Any "what drives enrollments" answer is time-correlation only. Say so in every output that touches it.
 - Write path: `POST /api/suggestions/:id/status` uses a bearer `API_WRITE_TOKEN`. The dash's `VITE_API_WRITE_TOKEN` is baked into the client bundle at build time and **must never be set on a hosted build**.
+- Current dash (`apps/dash/src/App.tsx`) is a single-page client with five sidebar tabs — Suggestions, Idea map, Performance, KPIs, Run log — switched by local React state, not routes. One HTTP Basic password currently gates the whole bundle and every `/api/*` route beneath it; there is no per-route authorization by username yet. `Run log` (`/api/logs`) is an engineering debug view — every agent tool call, status, duration, error — with no revenue or content data in it.
 
 ## Correction to a prior belief
 
@@ -36,7 +37,13 @@ Goal: a page Eknoor can use on day one to describe videos, with the existing met
 - New table `content_analysis` (one row per content row): description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (the paired content id on the other platform), analysed_by, analysed_at.
 - Page lists every TikTok + YouTube video with title, posted date, latest views/likes/comments/shares, and YouTube watch time where present. Per-video form for the fields above.
 - **Write path:** analysis writes authenticate via the HTTP Basic session already on every request — NOT via a baked-in `VITE_` token. This is the fix for the write-token problem for these routes.
-- **Visibility decision embedded here:** Eknoor should not see revenue while Jas is still verifying data. Proposed: two Basic-auth users — `owner` (whole dash) and `marketing` (only `/analysis` and its `/api/analysis/*` routes). Role = which password. This is a pragmatic answer to `portal-integration.md`'s open per-role question. **Jas to confirm.**
+
+**Visibility decision — LOCKED 2026-09-09 (Jas confirmed):**
+- Two Basic-auth users: `owner` and `marketing`. Role = which password.
+- Enforcement is **server-side, by authenticated username, inside `apps/api`** — not just hiding sidebar buttons in the client. The whole `apps/dash` bundle is one JS file today; hiding a nav button does not stop a request straight to `/api/kpis/monthly`. Every route handler must check which username authenticated and refuse `marketing` where it doesn't belong, same enforcement style as the existing `API_WRITE_TOKEN` check.
+- `marketing` password gets: the new `/analysis` page and its data (video list + metrics + the `content_analysis` fields), Suggestions, Idea map, Performance, KPIs. **Not** Run log — it's an agent-debugging view (tool calls, status, duration, errors), nothing Eknoor needs and nothing to accidentally expose.
+- `owner` password keeps everything, unchanged.
+- This is a pragmatic answer to `portal-integration.md`'s open per-role question, scoped to this dash — it does not resolve that question for the portal tab itself.
 - Map the structured fields onto the existing `hook` / `format` / `hypothesis` columns on `content` where they fit, so the current suggestions loop benefits immediately.
 
 ### X2 — Derived metrics
