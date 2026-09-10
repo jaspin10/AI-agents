@@ -93,7 +93,10 @@ export interface ContentRow {
 
 export interface PerformanceRecord {
   id: string;
+  /** Platform-native video id (the upsert key). Join on contentUuid, not this. */
   contentId: string;
+  /** X2 (migration 0009): real FK to content.id, filled by DB trigger. */
+  contentUuid?: string | null;
   platform: string;
   capturedAt: string;
   capturedDate: string;
@@ -211,4 +214,54 @@ export function saveAnalysis(
   body: AnalysisBody
 ): Promise<{ ok: true; analysis: ContentAnalysis; refs: PairedVideoRef[]; adRuns: AdRun[] }> {
   return sendJson('PUT', `/api/analysis/${contentId}`, body);
+}
+
+/* ---------------- X2 — derived metrics ---------------- */
+
+export interface Rates {
+  commentRatePct: number | null;
+  shareRatePct: number | null;
+  engagementRatePct: number | null;
+}
+
+export type VelocitySlot =
+  | { status: 'exact'; views: number; day: number }
+  | { status: 'approx'; views: number; day: number }
+  | { status: 'too_new' }
+  | { status: 'no_snapshot' };
+
+export interface MetricsVideo {
+  id: string;
+  platform: string;
+  platformVideoId: string;
+  title: string | null;
+  postedAt: string;
+  snapshotCount: number;
+  latestCapturedDate: string | null;
+  views: number | null;
+  rates: Rates | null;
+  velocity: { day1: VelocitySlot; day7: VelocitySlot; day30: VelocitySlot };
+  followerNormalised: { viewsPerFollower: number | null; followersFromDate: string | null; followers: number | null };
+  /** TIME split by ad-run dates — never paid/organic. `label` says so and must be rendered with the numbers. */
+  adSplit: {
+    label: string;
+    insideAdWindows: number;
+    outsideAdWindows: number;
+    unattributedBeforeFirstSnapshot: number;
+    runsUsed: number;
+    runsIgnoredNoStart: number;
+    computable: boolean;
+  };
+  /** 0..N twins on other platforms. */
+  twinIds: string[];
+}
+
+export interface MetricsPayload {
+  today: string;
+  adSplitLabel: string;
+  videos: MetricsVideo[];
+}
+
+export function getMetrics(): Promise<MetricsPayload> {
+  return getJson<MetricsPayload>('/api/metrics');
 }
