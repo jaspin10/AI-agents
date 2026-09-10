@@ -34,6 +34,9 @@ begin
 end $$;
 
 drop trigger if exists performance_fill_content_uuid on public.performance;
+-- Fires on ANY update, not just content_id: the nightly upsert hits the
+-- (content_id, captured_date) conflict path as an UPDATE, and a null sent
+-- there must be refilled rather than blanking the FK.
 create trigger performance_fill_content_uuid
-  before insert or update of content_id on public.performance
+  before insert or update on public.performance
   for each row execute function public.performance_fill_content_uuid();
