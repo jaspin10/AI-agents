@@ -23,7 +23,8 @@ Separate project from the French With Jas portal. Different repo, different stac
 - Never heredocs in jsh. Never multi-line generics — paste single-line.
 - Rebuild `packages/shared` before dependent packages when its exports change.
 - Commit + push after every confirmed "done" — an M2→M5 code-loss incident here made this a hard rule.
-- `performance.content_id` holds platform-native video ids, not content UUIDs — all joins go through `content.platformVideoId`.
+- `performance.content_id` holds platform-native video ids (the upsert key), not content UUIDs. As of X2 (migration 0009) `performance.content_uuid` is the real FK, filled by trigger on insert — **join on `content_uuid`**, never on `content_id`. Never send `content_uuid: null` in an upsert.
+- Derived metrics live in `packages/shared/src/metrics.ts` as pure functions with node:test cases (`pnpm --filter @platform/shared test`). The before/after-ad split is a TIME split, not paid/organic — its label is a field on the payload; never strip it.
 - No publish tool exists anywhere in this codebase — hard guardrail, the agent never publishes content directly.
 - `agent_logs` gets a row for every orchestrator call; unauthorized tool calls are rejected at the router level, not just logged.
 - Two unskippable in-code LLM checks (banned topics + brand voice) gate every suggestion before it surfaces, rejected candidates persisted too.
