@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0 is done — see below. X1 in progress on branch `x1-content-analysis`. Not built: X2 onward.
+X0 and X1 are done — see below. Not built: X2 onward.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -58,7 +58,10 @@ X0 is done — see below. X1 in progress on branch `x1-content-analysis`. Not bu
 ### X1 — Eknoor inputs content analysis
 **Confirmed 2026-09-10:** Supabase MCP has full read/write access to the analyst project (`kmgltqfwtyhswqxjicab`), verified with a live `execute_sql` call — not just the portal project. Not a blocker for X1.
 
-**Status 2026-09-10: IN PROGRESS** on branch `x1-content-analysis` (PR against `milestone-2`). All five sub-decisions below were locked before any code. X0 auth code is untouched.
+**Status 2026-09-10: SHIPPED.** PR #22 squash-merged to `milestone-2`; Railway `analyst-dash` deployment `c2ff086e` built clean and booted (`API + dash on port 8080`). Migration `0005_content_analysis.sql` applied to the analyst project via MCP before merge. All five sub-decisions below were locked before any code. X0 auth code untouched.
+- Built: `content_analysis` table (RLS on, service_role only) · `GET /api/analysis` (every video + latest snapshot + analysis + chip list) · `GET /api/analysis/ref/:platformVideoId` (paste-ID echo) · `PUT /api/analysis/:contentId` (upsert; validates the ref is real, not self, different platform; canonicalises `idea_source`; **writes `content.hook/.format/.hypothesis` every save**) · `Analysis` panel first in the dash nav for owner + marketing.
+- `content.hypothesis` for now is a mechanical tag from the structured fields — `<format-slug>[+model][+cta:<type-slug>]`, e.g. `talking-head+model+cta:comment` — so the suggestions agent has something to group on today. X6 replaces it with tags derived from the free-text description.
+- **Still to verify live:** an owner save from the real portal session, then Eknoor tagging one video. Nothing in the code path is untested by the build, but the write has not yet been exercised through a live cookie.
 
 **Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
 
