@@ -14,13 +14,15 @@ export const VideoMetricsSchema = z.object({
 });
 export type VideoMetrics = z.infer<typeof VideoMetricsSchema>;
 
-/** One row of the performance table (§3): metrics per video per platform over time. */
 /** One row of the performance table (§3): metrics per video per platform over time.
  *  Unique per (contentId, capturedDate) — one snapshot per video per UTC day. */
 export const PerformanceRecordSchema = z.object({
   id: IdSchema,
-  /** FK into the content table from M2; platform-native video id until then. */
+  /** Platform-native video id (NOT a content UUID — the M4.5 bug, kept as the upsert key). */
   contentId: z.string().min(1),
+  /** X2 (migration 0009): real FK to content.id. Filled by a DB trigger on insert; null only
+   *  if the content row is missing. Join on this, never on contentId. */
+  contentUuid: z.uuid().nullable().optional(),
   platform: PlatformSchema,
   capturedAt: IsoDateTimeSchema,
   /** UTC calendar date of capture, e.g. "2026-08-18" — idempotency key with contentId. */
@@ -28,4 +30,3 @@ export const PerformanceRecordSchema = z.object({
   metrics: VideoMetricsSchema,
 });
 export type PerformanceRecord = z.infer<typeof PerformanceRecordSchema>;
-

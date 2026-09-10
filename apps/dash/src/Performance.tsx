@@ -27,15 +27,19 @@ export function Performance() {
 
   const rows = useMemo<VideoRow[]>(() => {
     if (data === null) return [];
+    // X2 (migration 0009): join on content UUID; native-id fallback only for a row the trigger couldn't resolve.
+    const uuidByNative = new Map(data.content.filter((c) => c.id !== undefined).map((c) => [c.platformVideoId, c.id as string] as const));
     const latest = new Map<string, PerformanceRecord>();
     for (const p of data.performance) {
-      const existing = latest.get(p.contentId);
-      if (existing === undefined || p.capturedDate > existing.capturedDate) latest.set(p.contentId, p);
+      const key = p.contentUuid ?? uuidByNative.get(p.contentId);
+      if (key === undefined) continue;
+      const existing = latest.get(key);
+      if (existing === undefined || p.capturedDate > existing.capturedDate) latest.set(key, p);
     }
     const out: VideoRow[] = [];
     for (const c of data.content) {
       if (c.id === undefined) continue;
-      const p = latest.get(c.platformVideoId);
+      const p = latest.get(c.id);
       if (p === undefined) continue;
       const m = p.metrics;
       out.push({
