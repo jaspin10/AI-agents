@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0 and X1 are done — see below. Not built: X2 onward.
+X0 and X1 are done — see below. X2 in progress (branch `x2-derived-metrics`). Not built: X3 onward.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -25,7 +25,7 @@ X0 and X1 are done — see below. Not built: X2 onward.
 
 **Status 2026-09-10: SHIPPED AND VERIFIED END TO END.** Portal PR #11 and analyst PR #19 merged. `dash-token` deployed and configured. Owner click-through confirmed live (`handoff ok: owner learn@frenchwithjas.ca` in the Railway deploy log, matching a `200` from `dash-token`). `DASH_PASSWORD`/`DASH_USER` retired on Railway and the `/auth/basic` transition route removed in a follow-up PR. The portal is now the *only* door, permanently — not just by policy but because no other door exists in the code anymore.
 
-- Portal repo: Supabase Edge Function `dash-token` checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. This runs beside the portal's three existing Edge Functions (`smart-handler`, `sync-recordings`, `sync-enrollments`), deployed with `supabase functions deploy <name>`.
+- Portal repo: Supabase Edge Function `dash-token` checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. This runs beside the portal's three existing Edge Functions (`smart-handler`, `sync-recordings`, `sync-enrollments`), deployed with `supabase functions deploy <n>`.
 - Portal repo: `src/pages/Analytics.jsx` calls that function, then opens the returned handoff URL in a new tab.
 - Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role.
 - Shared signing secret `DASH_TOKEN_SECRET` (32+ chars, identical) lives in both Railway `analyst-dash` and the portal's Edge Function secrets.
@@ -42,12 +42,12 @@ X0 and X1 are done — see below. Not built: X2 onward.
 - The interim HTTP Basic fallback (`/auth/basic`, `DASH_USER`/`DASH_PASSWORD`) that bridged the switchover has been removed entirely — deleted from the code, and the credentials unset on Railway. There is no code path left that checks a password.
 
 **Route → role (enforced in `apps/api`, mirrored in `apps/dash/App.tsx`):**
-- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`, `/api/analysis/*` (X1)
+- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`, `/api/analysis/*` (X1), `/api/metrics` (X2)
 - owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/logs`
 
 **Role permissions (locked, mechanism-independent):**
 - `owner` — everything.
-- `marketing` — Analysis, Suggestions, Idea map, Performance. **No revenue anywhere.** No Run log.
+- `marketing` — Analysis, Suggestions, Idea map, Performance, Metrics. **No revenue anywhere.** No Run log.
 - `salesman` — nothing on this dash yet; revisit at X7.
 
 **Verification record (2026-09-10):**
@@ -101,12 +101,20 @@ X0 and X1 are done — see below. Not built: X2 onward.
 ### X2 — Derived metrics
 **Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
 
-- comment rate, share rate, engagement rate (as % of views)
-- view velocity: views at day 1 / 7 / 30 from snapshot history
-- follower-normalised views (views ÷ followersAtCapture at post time)
-- cross-platform side-by-side for paired videos
-- before/after-ad view split from snapshots + X1's manual ad dates — **a time split, not a true paid/organic split. Label it as such wherever it appears.**
-- **Decide here:** `performance.content_id` holds platform-native video ids, not content UUIDs (the M4.5 bug). Every join must go through `content.platformVideoId`. X2 does the heaviest joining in the project — either migrate to a real UUID FK now or amend the stale schema comment in `performance.ts` and move on. Don't leave it ambiguous for a third milestone.
+**Status 2026-09-10: IN PROGRESS** on branch `x2-derived-metrics`. Three sub-decisions locked before any code (below).
+
+Scope, per video:
+- comment rate, share rate, engagement rate (as % of views). Engagement = likes + comments + shares + saves. Rates are computed from the **latest** snapshot. Where a platform never reports a metric (YouTube shares are always 0 — Data API), the rate is shown as "n/a" on that platform, not 0%.
+- view velocity: views at day 1 / 7 / 30 after `posted_at`, from snapshot history.
+- follower-normalised views: latest views ÷ `followers_at_capture` from the **earliest** snapshot on or after `posted_at` (the closest thing to "followers at post time" the data holds). Labelled with the snapshot date used.
+- cross-platform side-by-side for paired videos — one column per twin, **0..N twins** via `content_analysis_refs`, not a single pair. Each column shows the same metric set; metrics a platform lacks show "n/a".
+- before/after-ad view split from snapshots + X1's manual ad run dates — **a time split, not a true paid/organic split. Label it as such wherever it appears — UI, exports, logs, agent input.**
+- `GET /api/metrics` (owner + marketing, X0 session), `Metrics` panel in the dash.
+
+**Sub-decisions locked 2026-09-10 (Jas):**
+- **Multiple ad runs → combined split.** Views are attributed by snapshot delta: for each consecutive snapshot pair, the views gained are assigned to *inside* if the interval overlaps any ad run window, else *outside*. Output is two numbers per video — "views gained during ad windows" and "views gained outside ad windows" — regardless of how many runs there are. Not per-run, not most-recent-only. A run with a `NULL` `end_date` is treated as still open (runs to today). Per-run breakdown deferred to X5 alongside cost-per-view.
+- **Velocity with missing history → nearest earlier snapshot, flagged.** If no snapshot lands on exactly day N, use the latest snapshot at or before day N and show the actual age it came from (e.g. "1,240 (day 5)"). Two blanks, never a number: video is younger than N days → "too new"; no snapshot at or before day N exists → "no snapshot". Never interpolate, never show the current total in a velocity slot.
+- **`performance.content_id` → migrate now.** Migration 0009 adds `performance.content_uuid uuid REFERENCES content(id) ON DELETE CASCADE`, backfills from `content.platform_video_id` (verified 2026-09-10: all 636 existing rows match a native id, zero match a UUID), indexes it, and `sync.ts` writes it on every insert. All X2 joins use `content_uuid`; existing joins move over in the same PR. The old text column stays for now (dropping it is a follow-up once nothing reads it), and the stale schema comment in `performance.ts` is corrected. This closes the M4.5 ambiguity for good.
 
 ### X3 — KPI view, rebuilt
 **Why here:** the old KPI tab was erased 2026-09-10 (it printed revenue in plain text). It needs redesigning around roles, which only exist after X0.
@@ -138,6 +146,7 @@ Other X3 scope:
 
 - Real paid/organic split from `impression_sources`, replacing X2's time-based approximation.
 - Cost per view and cost per enrollment-in-window, using X1's manual spend entries.
+- Per-run before/during/after breakdown (X2 ships the combined split only).
 - Ads APIs (TikTok Marketing, Google Ads) only if spend grows enough to justify separate app approvals. Not before.
 
 ### X6 — Agent correlation + the closed loop
@@ -209,9 +218,10 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 
 - `content`: platform, platformVideoId, title, `hook` (null), `format` (null), `hypothesis` (null — CSV header-only), postedAt. 156 TikTok + 66 YouTube = 222 videos as of 2026-09-10 — **Jas adds videos daily, so this count is a stale snapshot the moment it's written. Never treat a count in this doc as a fact to verify code against.** As of migration 0008, YouTube videos split into `youtube` and `youtube_shorts` by duration (≤60s); the 66 existing YouTube rows were all still labelled plain `youtube` at write time and self-correct on the next nightly sync.
 - `performance`: **daily snapshot per video** — views, likes, comments, shares, saves, avgWatchTimeSeconds, retentionPct, followersAtCapture. Snapshots accumulate nightly, so growth over time is derivable.
+- **Snapshot history is thin (checked 2026-09-10):** only three capture dates exist — 2026-08-18, 2026-09-09, 2026-09-10. Nothing between Aug 18 and Sep 9 (the nightly-sync outage in `punch-list.md`). So X2's velocity and ad-split figures will read "too new"/"no snapshot" for most videos until the nightly sync has run for a few weeks. Expected, not a bug — the UI must say so rather than show blanks.
 - YouTube: watch time + retention present. Shares always 0 (Data API doesn't expose them).
 - TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 fixes it. `sync.ts` has a locked rule against deriving them meanwhile.
-- **No ad data anywhere** until X1's manual entry.
+- **No ad data anywhere** until X1's manual entry (0 ad runs and 0 ref pairs saved as of 2026-09-10).
 - **No enrollment attribution.** Stripe enrollments carry no link to a video, ever.
 - **Stripe enrollment counts are a floor, not a total** — see B2.
 - `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**. As of X0 the dash no longer reads it at all — writes go through the session cookie.
