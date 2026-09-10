@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0 and X1 are done — see below. X2 in progress (branch `x2-derived-metrics`). Not built: X3 onward.
+X0, X1, and X2 are done — see below. Not built: X3 onward.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -101,10 +101,11 @@ X0 and X1 are done — see below. X2 in progress (branch `x2-derived-metrics`). 
 ### X2 — Derived metrics
 **Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
 
-**Status 2026-09-10: BUILT, PR open** on branch `x2-derived-metrics`. Migration 0009 applied to the analyst project via MCP. Three sub-decisions locked before any code (below).
+**Status 2026-09-10: SHIPPED.** PR #31 squash-merged to `milestone-2` (commit `46bbdf3`). Migration 0009 applied to the analyst project via MCP before merge. Three sub-decisions locked before any code (below).
 - Built: `packages/shared/src/metrics.ts` (pure functions, `pnpm --filter @platform/shared test` runs 5 node:test cases) · `GET /api/metrics` (owner + marketing) · `Metrics` panel second in the dash nav, one card per video with its 0..N twins as side-by-side columns and a "With twins only" filter.
 - Shares on a platform count as reported iff any snapshot on that platform has ever recorded a non-zero share count — derived from data, no hardcoded platform list. YouTube therefore shows share rate "n/a", not 0%.
 - The ad split's label is a field on the payload (`adSplit.label`, `adSplitLabel`), not UI copy, so any renderer, export, or agent that reads the JSON carries it.
+- **Still to verify live:** Jas checking the deployed dash directly (Railway auto-deploys `analyst-dash` from `milestone-2` on merge).
 
 Scope, per video:
 - comment rate, share rate, engagement rate (as % of views). Engagement = likes + comments + shares + saves. Rates are computed from the **latest** snapshot. Where a platform never reports a metric (YouTube shares are always 0 — Data API), the rate is shown as "n/a" on that platform, not 0%.
