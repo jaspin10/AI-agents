@@ -16,7 +16,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "node --test dist/metrics.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

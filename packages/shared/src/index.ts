@@ -17,3 +17,4 @@ export * from './schemas/check-result.js';
 export * from './llm.js';
 export * from './embeddings.js';
 export * from './schemas/suggestion-row.js';
+export * from './metrics.js';

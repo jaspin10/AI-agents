@@ -447,6 +447,8 @@ export function createMemoryClientFromConfig(
         const { error } = await db.from('performance').insert({
           id: p.id,
           content_id: p.contentId,
+          // X2: content_uuid is filled by the migration-0009 trigger; only sent when the caller already knows it.
+          ...(p.contentUuid ? { content_uuid: p.contentUuid } : {}),
           platform: p.platform,
           captured_at: p.capturedAt,
           captured_date: p.capturedDate,
@@ -467,6 +469,8 @@ export function createMemoryClientFromConfig(
           {
             id: p.id,
             content_id: p.contentId,
+            // X2: never send null here — on a conflict this is an UPDATE and would blank the trigger-filled FK.
+            ...(p.contentUuid ? { content_uuid: p.contentUuid } : {}),
             platform: p.platform,
             captured_at: p.capturedAt,
             captured_date: p.capturedDate,
@@ -490,6 +494,7 @@ export function createMemoryClientFromConfig(
           PerformanceRecordSchema.parse({
             id: r['id'],
             contentId: r['content_id'],
+            contentUuid: r['content_uuid'] ?? null,
             platform: r['platform'],
             capturedAt: new Date(String(r['captured_at'])).toISOString(),
             capturedDate: String(r['captured_date']),
