@@ -7,7 +7,8 @@ import { cors } from 'hono/cors';
 import { getCookie, setCookie } from 'hono/cookie';
 import { sign, verify } from 'hono/jwt';
 import { createMemoryClient, monthlyKpis, type ContentAnalysisRow } from '@platform/memory';
-import { createLogger } from '@platform/shared';
+import { AD_SPLIT_LABEL, adSplit, createLogger, followerNormalised, rates, velocity, type PerformanceRecord, type Snapshot } from '@platform/shared';
+import type { ContentRow } from '@platform/shared';
 import { z } from 'zod';
 
 const logger = createLogger('api');
@@ -270,6 +271,109 @@ app.get('/api/content-performance', requireRole('owner', 'marketing'), async (c)
 });
 
 /* ------------------------------------------------------------------ */
+/* X2 — derived metrics (docs/spec/x-series.md, X2)                    */
+/* ------------------------------------------------------------------ */
+/**
+ * Snapshots grouped by content UUID (migration 0009). content_uuid is filled
+ * by trigger on every insert; the platformVideoId fallback only matters for a
+ * row whose content record was missing at insert time.
+ */
+function snapshotsByContentUuid(content: ContentRow[], performance: PerformanceRecord[]): Map<string, PerformanceRecord[]> {
+  const uuidByNative = new Map(content.filter((r) => r.id !== undefined).map((r) => [r.platformVideoId, r.id as string] as const));
+  const out = new Map<string, PerformanceRecord[]>();
+  for (const p of performance) {
+    const key = p.contentUuid ?? uuidByNative.get(p.contentId);
+    if (key === undefined) continue;
+    if (!out.has(key)) out.set(key, []);
+    out.get(key)?.push(p);
+  }
+  return out;
+}
+
+function latestSnapshotByContentUuid(content: ContentRow[], performance: PerformanceRecord[]): Map<string, PerformanceRecord> {
+  const latest = new Map<string, PerformanceRecord>();
+  for (const [key, rows] of snapshotsByContentUuid(content, performance)) {
+    const top = rows.reduce((a, b) => (b.capturedDate > a.capturedDate ? b : a));
+    latest.set(key, top);
+  }
+  return latest;
+}
+
+function toSnapshot(p: PerformanceRecord): Snapshot {
+  return {
+    capturedDate: p.capturedDate,
+    views: p.metrics.views,
+    likes: p.metrics.likes,
+    comments: p.metrics.comments,
+    shares: p.metrics.shares,
+    saves: p.metrics.saves,
+    followersAtCapture: p.metrics.followersAtCapture,
+  };
+}
+
+/**
+ * Per-platform "is this metric real" rule (data reality, x-series.md): YouTube's
+ * Data API never exposes shares, so 0 there means unreported, not zero. Derived
+ * from the data, not a hardcoded platform list: shares are treated as reported on a
+ * platform iff any snapshot on that platform has ever recorded a non-zero share count.
+ */
+function sharesReportedByPlatform(performance: PerformanceRecord[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of performance) if (p.metrics.shares > 0) out.add(p.platform);
+  return out;
+}
+
+app.get('/api/metrics', requireRole('owner', 'marketing'), async (c) => {
+  const [content, performance, refPairs, adRuns] = await Promise.all([
+    memory.content.all(),
+    memory.performance.all(),
+    memory.contentAnalysisRefs.all(),
+    memory.contentAdRuns.all(),
+  ]);
+  const today = new Date().toISOString().slice(0, 10);
+  const grouped = snapshotsByContentUuid(content, performance);
+  const sharesOk = sharesReportedByPlatform(performance);
+  const refsByContent = new Map<string, Set<string>>();
+  for (const { contentId, refContentId } of refPairs) {
+    if (!refsByContent.has(contentId)) refsByContent.set(contentId, new Set());
+    refsByContent.get(contentId)?.add(refContentId);
+    if (!refsByContent.has(refContentId)) refsByContent.set(refContentId, new Set());
+    refsByContent.get(refContentId)?.add(contentId);
+  }
+  const runsByContent = new Map<string, typeof adRuns>();
+  for (const run of adRuns) {
+    if (!runsByContent.has(run.contentId)) runsByContent.set(run.contentId, []);
+    runsByContent.get(run.contentId)?.push(run);
+  }
+  const videos = content
+    .filter((r): r is ContentRow & { id: string } => r.id !== undefined)
+    .map((r) => {
+      const snaps = (grouped.get(r.id) ?? []).map(toSnapshot);
+      const latest = snaps.length === 0 ? null : snaps.reduce((a, b) => (b.capturedDate > a.capturedDate ? b : a));
+      const runs = runsByContent.get(r.id) ?? [];
+      return {
+        id: r.id,
+        platform: r.platform,
+        platformVideoId: r.platformVideoId,
+        title: r.title,
+        postedAt: r.postedAt,
+        snapshotCount: snaps.length,
+        latestCapturedDate: latest?.capturedDate ?? null,
+        views: latest?.views ?? null,
+        rates: latest === null ? null : rates(latest, { sharesReported: sharesOk.has(r.platform) }),
+        velocity: velocity(snaps, r.postedAt, today),
+        followerNormalised: followerNormalised(snaps, r.postedAt),
+        // Time split, never paid/organic — the label rides inside the object.
+        adSplit: adSplit(snaps, runs.map((x) => ({ startDate: x.startDate, endDate: x.endDate })), today),
+        /** 0..N twins on other platforms (content_analysis_refs). */
+        twinIds: [...(refsByContent.get(r.id) ?? [])],
+      };
+    })
+    .sort((x, y) => y.postedAt.localeCompare(x.postedAt));
+  return c.json({ today, adSplitLabel: AD_SPLIT_LABEL, videos });
+});
+
+/* ------------------------------------------------------------------ */
 /* X1 — content analysis (docs/spec/x-series.md, X1)                   */
 /* ------------------------------------------------------------------ */
 /**
@@ -370,12 +474,8 @@ app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
     memory.contentAnalysisRefs.all(),
     memory.contentAdRuns.all(),
   ]);
-  // Latest snapshot per video. Join key is platformVideoId (CLAUDE.md rule).
-  const latest = new Map<string, (typeof performance)[number]>();
-  for (const p of performance) {
-    const prev = latest.get(p.contentId);
-    if (prev === undefined || p.capturedDate > prev.capturedDate) latest.set(p.contentId, p);
-  }
+  // Latest snapshot per video, keyed by content UUID (X2, migration 0009).
+  const latest = latestSnapshotByContentUuid(content, performance);
   const byId = new Map(content.map((r) => [r.id ?? '', r] as const));
   const analysisByContent = new Map(analyses.map((a) => [a.contentId, a] as const));
   // Refs are written in both directions on save, so a forward-only group already
@@ -393,7 +493,7 @@ app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
   const videos = content
     .filter((r) => r.id !== undefined)
     .map((r) => {
-      const p = latest.get(r.platformVideoId);
+      const p = latest.get(r.id ?? '');
       const a = analysisByContent.get(r.id ?? '') ?? null;
       const refIds = [...(refsByContent.get(r.id ?? '') ?? [])];
       const crossPlatformRefVideos: PairedVideoRef[] = refIds
