@@ -6,7 +6,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { getCookie, setCookie } from 'hono/cookie';
 import { sign, verify } from 'hono/jwt';
-import { createMemoryClient, monthlyKpis } from '@platform/memory';
+import { createMemoryClient, monthlyKpis, type ContentAnalysisRow } from '@platform/memory';
 import { createLogger } from '@platform/shared';
 import { z } from 'zod';
 
@@ -267,6 +267,174 @@ app.get('/api/content-performance', requireRole('owner', 'marketing'), async (c)
     memory.performance.all(),
   ]);
   return c.json({ content, performance });
+});
+
+/* ------------------------------------------------------------------ */
+/* X1 — content analysis (docs/spec/x-series.md, X1)                   */
+/* ------------------------------------------------------------------ */
+/**
+ * Owner + marketing, session cookie only. Platform-agnostic: nothing below
+ * names a platform; the dash derives its filter from the distinct values it
+ * receives. Every PUT also writes content.hook / .format / .hypothesis on the
+ * matching content row — the only path that ever fills those columns.
+ */
+
+/** Seeded chips. The live list is this ∪ DISTINCT idea_source — new names need no deploy. */
+const IDEA_SOURCE_SEEDS = ['AI agent', 'Jas', 'Eknoor', 'Loop Studio', 'Harman', 'Manjot', 'Other'];
+
+const optionalText = z
+  .string()
+  .trim()
+  .max(4000)
+  .nullable()
+  .optional()
+  .transform((v) => (v === undefined || v === null || v === '' ? null : v));
+
+const optionalDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .nullable()
+  .optional()
+  .transform((v) => (v === undefined || v === null ? null : v));
+
+const AnalysisBodySchema = z.object({
+  description: optionalText,
+  hookText: optionalText,
+  format: optionalText,
+  hasModel: z.boolean().nullable().optional().transform((v) => v ?? null),
+  hasCta: z.boolean().nullable().optional().transform((v) => v ?? null),
+  ctaType: optionalText,
+  adBoosted: z.boolean().optional().transform((v) => v ?? false),
+  adStartDate: optionalDate,
+  adEndDate: optionalDate,
+  adSpendCents: z.number().int().min(0).nullable().optional().transform((v) => v ?? null),
+  /** Platform video id of the paired video (pasted by Eknoor). Resolved server-side to content.id. */
+  crossPlatformVideoId: optionalText,
+  ideaSource: optionalText,
+});
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Hypothesis tag derived from the structured fields, so the suggestions agent
+ * has something to group on today. X6 will auto-suggest richer tags from the
+ * free-text description; until then this is the mechanical mapping.
+ * e.g. "talking-head+model+cta:comment". Null when there is no format.
+ */
+function deriveHypothesis(a: { format: string | null; hasModel: boolean | null; hasCta: boolean | null; ctaType: string | null }): string | null {
+  if (a.format === null) return null;
+  const parts = [slug(a.format)];
+  if (a.hasModel === true) parts.push('model');
+  if (a.hasCta === true) parts.push(a.ctaType === null ? 'cta' : `cta:${slug(a.ctaType)}`);
+  return parts.join('+');
+}
+
+/** Canonicalise an idea_source against what already exists (case-insensitive), so "jas" → "Jas". */
+function canonicalIdeaSource(input: string | null, known: string[]): string | null {
+  if (input === null) return null;
+  const trimmed = input.replace(/\s+/g, ' ').trim();
+  if (trimmed === '') return null;
+  const hit = known.find((k) => k.toLowerCase() === trimmed.toLowerCase());
+  return hit ?? trimmed;
+}
+
+app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
+  const [content, performance, analyses, savedSources] = await Promise.all([
+    memory.content.all(),
+    memory.performance.all(),
+    memory.contentAnalysis.all(),
+    memory.contentAnalysis.distinctIdeaSources(),
+  ]);
+  // Latest snapshot per video. Join key is platformVideoId (CLAUDE.md rule).
+  const latest = new Map<string, (typeof performance)[number]>();
+  for (const p of performance) {
+    const prev = latest.get(p.contentId);
+    if (prev === undefined || p.capturedDate > prev.capturedDate) latest.set(p.contentId, p);
+  }
+  const byId = new Map(content.map((r) => [r.id ?? '', r] as const));
+  const analysisByContent = new Map(analyses.map((a) => [a.contentId, a] as const));
+  const videos = content
+    .filter((r) => r.id !== undefined)
+    .map((r) => {
+      const p = latest.get(r.platformVideoId);
+      const a = analysisByContent.get(r.id ?? '') ?? null;
+      const ref = a?.crossPlatformRef === null || a === null ? null : byId.get(a.crossPlatformRef) ?? null;
+      return {
+        id: r.id,
+        platform: r.platform,
+        platformVideoId: r.platformVideoId,
+        title: r.title,
+        postedAt: r.postedAt,
+        metrics: p === undefined ? null : { capturedDate: p.capturedDate, ...p.metrics },
+        analysis: a,
+        crossPlatformRefVideo:
+          ref === null ? null : { id: ref.id, platform: ref.platform, platformVideoId: ref.platformVideoId, title: ref.title },
+      };
+    })
+    .sort((x, y) => y.postedAt.localeCompare(x.postedAt));
+  const ideaSources = [...new Set([...IDEA_SOURCE_SEEDS, ...savedSources])];
+  return c.json({ videos, ideaSources });
+});
+
+/** Echo for the paste-ID cross-platform picker. Any platform; the pairing rule is checked on PUT. */
+app.get('/api/analysis/ref/:platformVideoId', requireRole('owner', 'marketing'), async (c) => {
+  const row = await memory.content.findByPlatformVideoId(c.req.param('platformVideoId').trim());
+  if (row === null) return c.json({ error: 'not_found' }, 404);
+  return c.json({ id: row.id, platform: row.platform, platformVideoId: row.platformVideoId, title: row.title, postedAt: row.postedAt });
+});
+
+/** Upsert one analysis. Editable after submit (locked): saving again refreshes analysed_at. */
+app.put('/api/analysis/:contentId', requireRole('owner', 'marketing'), async (c) => {
+  const auth = c.get('auth');
+  if (auth === null) return c.json({ error: 'unauthorized' }, 401);
+  const contentId = c.req.param('contentId');
+  const parsed = AnalysisBodySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'invalid_body', issues: parsed.error.issues }, 400);
+  const body = parsed.data;
+
+  const content = await memory.content.all();
+  const target = content.find((r) => r.id === contentId);
+  if (target === undefined) return c.json({ error: 'unknown_content' }, 404);
+
+  let crossPlatformRef: string | null = null;
+  if (body.crossPlatformVideoId !== null) {
+    const paired = await memory.content.findByPlatformVideoId(body.crossPlatformVideoId);
+    if (paired === null || paired.id === undefined) return c.json({ error: 'ref_not_found' }, 400);
+    if (paired.id === contentId) return c.json({ error: 'ref_is_self' }, 400);
+    if (paired.platform === target.platform) return c.json({ error: 'ref_same_platform' }, 400);
+    crossPlatformRef = paired.id;
+  }
+
+  if (body.adStartDate !== null && body.adEndDate !== null && body.adEndDate < body.adStartDate) {
+    return c.json({ error: 'ad_end_before_start' }, 400);
+  }
+
+  const known = [...IDEA_SOURCE_SEEDS, ...(await memory.contentAnalysis.distinctIdeaSources())];
+  const row: ContentAnalysisRow = {
+    contentId,
+    description: body.description,
+    hookText: body.hookText,
+    format: body.format,
+    hasModel: body.hasModel,
+    hasCta: body.hasCta,
+    ctaType: body.hasCta === true ? body.ctaType : null,
+    adBoosted: body.adBoosted,
+    adStartDate: body.adBoosted ? body.adStartDate : null,
+    adEndDate: body.adBoosted ? body.adEndDate : null,
+    adSpendCents: body.adBoosted ? body.adSpendCents : null,
+    crossPlatformRef,
+    ideaSource: canonicalIdeaSource(body.ideaSource, known),
+    analysedBy: auth.email,
+    analysedAt: new Date().toISOString(),
+  };
+  await memory.contentAnalysis.upsert(row);
+  // Required (X1): the structured fields are the only source for these columns.
+  const hypothesis = deriveHypothesis(row);
+  await memory.content.setTags(contentId, { hook: row.hookText, format: row.format, hypothesis });
+  logger.info(`analysis saved: ${target.platform} ${target.platformVideoId} by ${auth.email}`);
+  return c.json({ ok: true, analysis: row, tags: { hook: row.hookText, format: row.format, hypothesis } });
 });
 
 /** Revenue-adjacent (enrollment counts): owner only — locked, no marketing view of this route. */

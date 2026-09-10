@@ -18,12 +18,36 @@ import {
 import type { SupabaseConfig } from './config.js';
 
 /**
+ * X1 (docs/spec/x-series.md): one manual analysis per content row.
+ * Every classification field is plain text by design — see migration 0005.
+ */
+export interface ContentAnalysisRow {
+  contentId: string;
+  description: string | null;
+  hookText: string | null;
+  format: string | null;
+  hasModel: boolean | null;
+  hasCta: boolean | null;
+  ctaType: string | null;
+  adBoosted: boolean;
+  adStartDate: string | null;
+  adEndDate: string | null;
+  adSpendCents: number | null;
+  crossPlatformRef: string | null;
+  ideaSource: string | null;
+  analysedBy: string;
+  analysedAt: string;
+}
+
+/**
  * Typed read/write helpers for the §3 memory tables. Insert helpers validate
  * with Zod before writing; read helpers validate after reading.
  * M4 adds: brandAssets.updateEmbeddings + search (pgvector via match_brand_assets),
  * and the suggestions table (migration 0003).
  * M5 adds: suggestions.updateStatus (feedback write path), tokens (rotating
  * OAuth store, migration 0004), llmUsage (§6 monthly spend cap, migration 0004).
+ * X1 adds: contentAnalysis (migration 0005) and content.setTags — the only
+ * path that ever fills content.hook / .format / .hypothesis.
  */
 export interface MemoryClient {
   brandAssets: {
@@ -39,6 +63,16 @@ export interface MemoryClient {
     insert: (row: ContentRow) => Promise<void>;
     upsert: (row: ContentRow) => Promise<void>;
     all: () => Promise<ContentRow[]>;
+    /** X1: look a video up by its platform-native id (any platform). Null when absent. */
+    findByPlatformVideoId: (platformVideoId: string) => Promise<ContentRow | null>;
+    /** X1: write the derived tags onto a content row. The only writer of these columns. */
+    setTags: (id: string, tags: { hook: string | null; format: string | null; hypothesis: string | null }) => Promise<void>;
+  };
+  contentAnalysis: {
+    all: () => Promise<ContentAnalysisRow[]>;
+    upsert: (row: ContentAnalysisRow) => Promise<void>;
+    /** Distinct non-null idea_source values already saved — feeds the quick-pick chips. */
+    distinctIdeaSources: () => Promise<string[]>;
   };
   performance: {
     insert: (row: PerformanceRecord) => Promise<void>;
@@ -78,6 +112,41 @@ export interface MemoryClient {
 
 function fail(table: string, op: string, message: string): never {
   throw new Error(`Supabase ${table} ${op} failed: ${message}`);
+}
+
+function parseContentRow(r: Record<string, unknown>): ContentRow {
+  return ContentRowSchema.parse({
+    id: r['id'],
+    platform: r['platform'],
+    platformVideoId: r['platform_video_id'],
+    title: r['title'],
+    hook: r['hook'],
+    format: r['format'],
+    hypothesis: r['hypothesis'],
+    postedAt: new Date(String(r['posted_at'])).toISOString(),
+  });
+}
+
+function parseContentAnalysisRow(r: Record<string, unknown>): ContentAnalysisRow {
+  const text = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+  const bool = (v: unknown): boolean | null => (v === null || v === undefined ? null : Boolean(v));
+  return {
+    contentId: String(r['content_id']),
+    description: text(r['description']),
+    hookText: text(r['hook_text']),
+    format: text(r['format']),
+    hasModel: bool(r['has_model']),
+    hasCta: bool(r['has_cta']),
+    ctaType: text(r['cta_type']),
+    adBoosted: Boolean(r['ad_boosted']),
+    adStartDate: text(r['ad_start_date']),
+    adEndDate: text(r['ad_end_date']),
+    adSpendCents: r['ad_spend_cents'] === null || r['ad_spend_cents'] === undefined ? null : Number(r['ad_spend_cents']),
+    crossPlatformRef: text(r['cross_platform_ref']),
+    ideaSource: text(r['idea_source']),
+    analysedBy: String(r['analysed_by']),
+    analysedAt: new Date(String(r['analysed_at'])).toISOString(),
+  };
 }
 
 export function createMemoryClientFromConfig(
@@ -195,18 +264,67 @@ export function createMemoryClientFromConfig(
       async all() {
         const { data, error } = await db.from('content').select('*');
         if (error) fail('content', 'select', error.message);
-        return (data ?? []).map((r) =>
-          ContentRowSchema.parse({
-            id: r['id'],
-            platform: r['platform'],
-            platformVideoId: r['platform_video_id'],
-            title: r['title'],
-            hook: r['hook'],
-            format: r['format'],
-            hypothesis: r['hypothesis'],
-            postedAt: new Date(String(r['posted_at'])).toISOString(),
-          })
+        return (data ?? []).map((r) => parseContentRow(r));
+      },
+      async findByPlatformVideoId(platformVideoId) {
+        const { data, error } = await db
+          .from('content')
+          .select('*')
+          .eq('platform_video_id', platformVideoId)
+          .limit(1)
+          .maybeSingle();
+        if (error) fail('content', 'select by platform_video_id', error.message);
+        return data === null ? null : parseContentRow(data);
+      },
+      async setTags(id, tags) {
+        const { error } = await db
+          .from('content')
+          .update({ hook: tags.hook, format: tags.format, hypothesis: tags.hypothesis })
+          .eq('id', id);
+        if (error) fail('content', 'set tags', error.message);
+      },
+    },
+    contentAnalysis: {
+      async all() {
+        const { data, error } = await db.from('content_analysis').select('*');
+        if (error) fail('content_analysis', 'select', error.message);
+        return (data ?? []).map((r) => parseContentAnalysisRow(r));
+      },
+      async upsert(row) {
+        const { error } = await db.from('content_analysis').upsert(
+          {
+            content_id: row.contentId,
+            description: row.description,
+            hook_text: row.hookText,
+            format: row.format,
+            has_model: row.hasModel,
+            has_cta: row.hasCta,
+            cta_type: row.ctaType,
+            ad_boosted: row.adBoosted,
+            ad_start_date: row.adStartDate,
+            ad_end_date: row.adEndDate,
+            ad_spend_cents: row.adSpendCents,
+            cross_platform_ref: row.crossPlatformRef,
+            idea_source: row.ideaSource,
+            analysed_by: row.analysedBy,
+            analysed_at: row.analysedAt,
+          },
+          { onConflict: 'content_id' }
         );
+        if (error) fail('content_analysis', 'upsert', error.message);
+      },
+      async distinctIdeaSources() {
+        const { data, error } = await db
+          .from('content_analysis')
+          .select('idea_source')
+          .not('idea_source', 'is', null);
+        if (error) fail('content_analysis', 'select idea_source', error.message);
+        const seen = new Set<string>();
+        for (const r of data ?? []) {
+          const v = r['idea_source'];
+          if (typeof v === 'string' && v.trim() !== '') seen.add(v);
+        }
+        return [...seen].sort((a, b) => a.localeCompare(b));
       },
     },
     performance: {

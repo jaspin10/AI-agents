@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0 is done — see below. Not built: X1 onward.
+X0 is done — see below. X1 in progress on branch `x1-content-analysis`. Not built: X2 onward.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -42,7 +42,7 @@ X0 is done — see below. Not built: X1 onward.
 - The interim HTTP Basic fallback (`/auth/basic`, `DASH_USER`/`DASH_PASSWORD`) that bridged the switchover has been removed entirely — deleted from the code, and the credentials unset on Railway. There is no code path left that checks a password.
 
 **Route → role (enforced in `apps/api`, mirrored in `apps/dash/App.tsx`):**
-- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`
+- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`, `/api/analysis/*` (X1)
 - owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/logs`
 
 **Role permissions (locked, mechanism-independent):**
@@ -58,18 +58,29 @@ X0 is done — see below. Not built: X1 onward.
 ### X1 — Eknoor inputs content analysis
 **Confirmed 2026-09-10:** Supabase MCP has full read/write access to the analyst project (`kmgltqfwtyhswqxjicab`), verified with a live `execute_sql` call — not just the portal project. Not a blocker for X1.
 
+**Status 2026-09-10: IN PROGRESS** on branch `x1-content-analysis` (PR against `milestone-2`). All five sub-decisions below were locked before any code. X0 auth code is untouched.
+
 **Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
 
 **X1 is also the replacement for the old hypothesis-taxonomy effort** (dropped 2026-09-10, see Track B history). `content.hypothesis` gets populated from Eknoor's structured descriptions rather than from a separate hand-built taxonomy — so the mapping onto `content.hook` / `.format` / `.hypothesis` below is not a nice-to-have, it is now the only path by which those columns ever get filled. Treat it as required scope, not an optional extra.
 
 - New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), idea_source, analysed_by, analysed_at.
-- `/analysis` page in `apps/dash`: every video in `content` with title, posted date, latest views/likes/comments/shares, watch time where present, and a per-video form.
+- `/analysis` page in `apps/dash`: every video in `content` with title, posted date, latest views/likes/comments/shares, watch time where present, and a per-video form. Added to `App.tsx`'s nav and `PANELS_BY_ROLE` for owner + marketing.
 - **REQUIRED — build platform-agnostic.** Do NOT hardcode `platform IN ('tiktok','youtube')` anywhere in the query, the UI, the filters, or the schema. The page lists whatever platforms exist in `content`, and the platform filter is derived from the distinct values actually present. When X9 lands and Instagram rows start arriving from the nightly sync, they must appear on this page with **zero changes to X1 code**. Same for any future platform. Missing metrics per platform are already handled by the "show only where present" rule below — that is the same mechanism.
 - **`idea_source` field, locked 2026-09-10 (Jas):** who had the *idea* for the video — not who filmed it, edited it, or posted it. Known values so far: AI agent, Jas, Eknoor, Loop Studio (marketing contractor), Harman, Manjot, Other — and this list will keep growing as testing continues, so it must not be a rigid CHECK-constraint enum; adding a new source later should need no schema migration and no deploy. Loop Studio and Manjot are content-idea sources only — they are not portal roles, do not touch `profiles.role` or `access_status` for them. Existing/legacy videos get `idea_source = NULL` and stay NULL — there is no backfill. Only videos analysed from X1 onward get it filled in; NULL on an old row is expected, not missing data.
-- `/api/analysis/*` read + write routes, authenticated by the X0 session cookie — never by a baked-in `VITE_` token.
-- **Required:** map the structured fields onto `content.hook` / `.format` / `.hypothesis`, so the existing suggestions agent benefits and the tagging gap closes.
+- `/api/analysis/*` read + write routes, authenticated by the X0 session cookie via `requireRole('owner','marketing')` — never by a baked-in `VITE_` token.
+- **Required:** every submitted analysis also writes `content.hook` / `.format` / `.hypothesis` on the matching content row, so the existing suggestions agent benefits and the tagging gap closes. This is the only path that ever fills those columns.
 - Show per-platform metrics only where present; never derive or fill a missing one.
 - **Ad data is manual entry here.** A true paid/organic split needs X4.
+
+**Sub-decisions locked 2026-09-10 (Jas):**
+- `idea_source` — plain `text` column, **free text with quick-pick chips**. Chips = the seeded known list ∪ `SELECT DISTINCT idea_source` from saved analyses, so a brand-new name becomes a chip after its first use — no migration, no deploy, no admin screen. On save the server trims and matches case-insensitively against existing values, so "jas" / "Jas " collapse onto the existing "Jas". Lookup table rejected.
+- `format` and `cta_type` — **dropdowns**, each with an `Other` option that reveals a free-text box. Stored as `text` with no CHECK constraint, so promoting a recurring "Other" value to a real option is a UI-list edit, not a migration.
+  - format: Talking head · Skit · Screen/text overlay · Voiceover B-roll · Duet/Stitch · Live clip · Other
+  - cta_type: Comment · Follow · Link in bio · DM · Enrol/Book · Save/Share · None
+- `cross_platform_ref` — Eknoor **pastes the paired video's platform video ID**. The server validates it exists in `content.platformVideoId` and sits on a *different* platform from the video being analysed; the form echoes the matched title + platform so she can confirm before saving. Stores the paired row's `content.id`. Title search rejected.
+- **Editable after submit.** Save is an upsert keyed on `content_id`; `analysed_at` refreshes on every save. Ad end dates and spend are usually unknown at first analysis, so write-once would block exactly the fields that arrive late. The `/analysis` list shows an **Analysed / Not yet** badge per video with a filter, so untagged videos are easy to work through.
+- `analysed_by` — **auto-filled from the session** (`/api/me` email). No form field.
 
 **Sequencing note (Jas, 2026-09-10):** Jas would prefer Meta access (B1) resolved before Eknoor starts tagging, so she covers all platforms in one pass rather than revisiting videos later. Recorded as a preference, with the trade-off stated plainly so the choice stays deliberate:
 - B1's timeline belongs to a third party and may be days, weeks, or never. Gating X1 on it means Eknoor has nothing to do for an unknown period.
