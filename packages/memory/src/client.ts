@@ -20,6 +20,7 @@ import type { SupabaseConfig } from './config.js';
 /**
  * X1 (docs/spec/x-series.md): one manual analysis per content row.
  * Every classification field is plain text by design — see migration 0005.
+ * adBoosted is tri-state (migration 0006): true / false / null ("don't know").
  */
 export interface ContentAnalysisRow {
   contentId: string;
@@ -29,14 +30,26 @@ export interface ContentAnalysisRow {
   hasModel: boolean | null;
   hasCta: boolean | null;
   ctaType: string | null;
-  adBoosted: boolean;
+  adBoosted: boolean | null;
   adStartDate: string | null;
   adEndDate: string | null;
   adSpendCents: number | null;
-  crossPlatformRef: string | null;
   ideaSource: string | null;
   analysedBy: string;
   analysedAt: string;
+}
+
+/**
+ * X1 follow-up (migration 0006, locked 2026-09-10): a video can have
+ * equivalent twins on more than one other platform at once (e.g. a YouTube
+ * twin AND an Instagram twin once X9 lands), so pairing is a join table, not
+ * a single column. Rows are written in both directions on save (see
+ * contentAnalysisRefs.set), so either side of a pair shows the other without
+ * needing to be re-entered.
+ */
+export interface RefPair {
+  contentId: string;
+  refContentId: string;
 }
 
 /**
@@ -48,6 +61,8 @@ export interface ContentAnalysisRow {
  * OAuth store, migration 0004), llmUsage (§6 monthly spend cap, migration 0004).
  * X1 adds: contentAnalysis (migration 0005) and content.setTags — the only
  * path that ever fills content.hook / .format / .hypothesis.
+ * X1 follow-up adds: contentAnalysisRefs (migration 0006) — multiple
+ * cross-platform pairs per video, replacing the single cross_platform_ref column.
  */
 export interface MemoryClient {
   brandAssets: {
@@ -73,6 +88,17 @@ export interface MemoryClient {
     upsert: (row: ContentAnalysisRow) => Promise<void>;
     /** Distinct non-null idea_source values already saved — feeds the quick-pick chips. */
     distinctIdeaSources: () => Promise<string[]>;
+  };
+  contentAnalysisRefs: {
+    /** Every stored pair, both directions (mirrors are written on save). */
+    all: () => Promise<RefPair[]>;
+    /**
+     * Fully replace this content's outgoing pairs and their mirrors. A video
+     * can have 0..N refs at once (one per other platform, typically). Stale
+     * mirrors from refs that were removed are cleaned up; mirrors owned by
+     * other videos' own saves are left untouched.
+     */
+    set: (contentId: string, refContentIds: string[]) => Promise<void>;
   };
   performance: {
     insert: (row: PerformanceRecord) => Promise<void>;
@@ -138,11 +164,10 @@ function parseContentAnalysisRow(r: Record<string, unknown>): ContentAnalysisRow
     hasModel: bool(r['has_model']),
     hasCta: bool(r['has_cta']),
     ctaType: text(r['cta_type']),
-    adBoosted: Boolean(r['ad_boosted']),
+    adBoosted: bool(r['ad_boosted']),
     adStartDate: text(r['ad_start_date']),
     adEndDate: text(r['ad_end_date']),
     adSpendCents: r['ad_spend_cents'] === null || r['ad_spend_cents'] === undefined ? null : Number(r['ad_spend_cents']),
-    crossPlatformRef: text(r['cross_platform_ref']),
     ideaSource: text(r['idea_source']),
     analysedBy: String(r['analysed_by']),
     analysedAt: new Date(String(r['analysed_at'])).toISOString(),
@@ -304,7 +329,6 @@ export function createMemoryClientFromConfig(
             ad_start_date: row.adStartDate,
             ad_end_date: row.adEndDate,
             ad_spend_cents: row.adSpendCents,
-            cross_platform_ref: row.crossPlatformRef,
             idea_source: row.ideaSource,
             analysed_by: row.analysedBy,
             analysed_at: row.analysedAt,
@@ -325,6 +349,43 @@ export function createMemoryClientFromConfig(
           if (typeof v === 'string' && v.trim() !== '') seen.add(v);
         }
         return [...seen].sort((a, b) => a.localeCompare(b));
+      },
+    },
+    contentAnalysisRefs: {
+      async all() {
+        const { data, error } = await db.from('content_analysis_refs').select('content_id, ref_content_id');
+        if (error) fail('content_analysis_refs', 'select', error.message);
+        return (data ?? []).map((r) => ({ contentId: String(r['content_id']), refContentId: String(r['ref_content_id']) }));
+      },
+      async set(contentId, refContentIds) {
+        // Read the current outgoing set first so we can clean up mirrors that
+        // are no longer wanted (e.g. a ref removed in this edit).
+        const { data: existing, error: selErr } = await db
+          .from('content_analysis_refs')
+          .select('ref_content_id')
+          .eq('content_id', contentId);
+        if (selErr) fail('content_analysis_refs', 'select existing', selErr.message);
+        const oldRefs = (existing ?? []).map((r) => String(r['ref_content_id']));
+
+        const { error: delFwdErr } = await db.from('content_analysis_refs').delete().eq('content_id', contentId);
+        if (delFwdErr) fail('content_analysis_refs', 'delete forward', delFwdErr.message);
+
+        if (oldRefs.length > 0) {
+          const { error: delMirrorErr } = await db
+            .from('content_analysis_refs')
+            .delete()
+            .eq('ref_content_id', contentId)
+            .in('content_id', oldRefs);
+          if (delMirrorErr) fail('content_analysis_refs', 'delete stale mirrors', delMirrorErr.message);
+        }
+
+        if (refContentIds.length === 0) return;
+        const forward = refContentIds.map((refId) => ({ content_id: contentId, ref_content_id: refId }));
+        const mirror = refContentIds.map((refId) => ({ content_id: refId, ref_content_id: contentId }));
+        const { error: insErr } = await db
+          .from('content_analysis_refs')
+          .upsert([...forward, ...mirror], { onConflict: 'content_id,ref_content_id', ignoreDuplicates: true });
+        if (insErr) fail('content_analysis_refs', 'insert', insErr.message);
       },
     },
     performance: {
