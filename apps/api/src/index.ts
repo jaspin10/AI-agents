@@ -281,6 +281,10 @@ app.get('/api/content-performance', requireRole('owner', 'marketing'), async (c)
  * than one other video at once (e.g. a YouTube twin AND an Instagram twin),
  * and ad_boosted is tri-state (true / false / null "don't know") — Eknoor
  * should not have to guess when she hasn't checked Ads Manager yet.
+ * Follow-up (migration 0007, locked 2026-09-10): a video can have more than
+ * one ad run over its life (re-boosted at different times) — dates/spend
+ * moved off content_analysis into a child table, one row per run, no
+ * auto-summed total (that is computed at report time in X5, not stored here).
  */
 
 /** Seeded chips. The live list is this ∪ DISTINCT idea_source — new names need no deploy. */
@@ -301,6 +305,12 @@ const optionalDate = z
   .optional()
   .transform((v) => (v === undefined || v === null ? null : v));
 
+const AdRunBodySchema = z.object({
+  startDate: optionalDate,
+  endDate: optionalDate,
+  spendCents: z.number().int().min(0).nullable().optional().transform((v) => v ?? null),
+});
+
 const AnalysisBodySchema = z.object({
   description: optionalText,
   hookText: optionalText,
@@ -310,9 +320,8 @@ const AnalysisBodySchema = z.object({
   ctaType: optionalText,
   /** Tri-state: true (boosted) / false (not boosted) / null (don't know, the default). */
   adBoosted: z.boolean().nullable().optional().transform((v) => v ?? null),
-  adStartDate: optionalDate,
-  adEndDate: optionalDate,
-  adSpendCents: z.number().int().min(0).nullable().optional().transform((v) => v ?? null),
+  /** One entry per ad run. Only kept when adBoosted === true; cleared otherwise. */
+  adRuns: z.array(AdRunBodySchema).max(20).optional().transform((v) => v ?? []),
   /** Platform video ids of every paired video (pasted by Eknoor), one per twin. Resolved server-side. */
   crossPlatformVideoIds: z.array(z.string().trim().min(1)).max(10).optional().transform((v) => v ?? []),
   ideaSource: optionalText,
@@ -353,12 +362,13 @@ interface PairedVideoRef {
 }
 
 app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
-  const [content, performance, analyses, savedSources, refPairs] = await Promise.all([
+  const [content, performance, analyses, savedSources, refPairs, adRuns] = await Promise.all([
     memory.content.all(),
     memory.performance.all(),
     memory.contentAnalysis.all(),
     memory.contentAnalysis.distinctIdeaSources(),
     memory.contentAnalysisRefs.all(),
+    memory.contentAdRuns.all(),
   ]);
   // Latest snapshot per video. Join key is platformVideoId (CLAUDE.md rule).
   const latest = new Map<string, (typeof performance)[number]>();
@@ -374,6 +384,11 @@ app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
   for (const { contentId, refContentId } of refPairs) {
     if (!refsByContent.has(contentId)) refsByContent.set(contentId, new Set());
     refsByContent.get(contentId)?.add(refContentId);
+  }
+  const adRunsByContent = new Map<string, typeof adRuns>();
+  for (const run of adRuns) {
+    if (!adRunsByContent.has(run.contentId)) adRunsByContent.set(run.contentId, []);
+    adRunsByContent.get(run.contentId)?.push(run);
   }
   const videos = content
     .filter((r) => r.id !== undefined)
@@ -393,6 +408,7 @@ app.get('/api/analysis', requireRole('owner', 'marketing'), async (c) => {
         postedAt: r.postedAt,
         metrics: p === undefined ? null : { capturedDate: p.capturedDate, ...p.metrics },
         analysis: a,
+        adRuns: adRunsByContent.get(r.id ?? '') ?? [],
         crossPlatformRefVideos,
       };
     })
@@ -424,20 +440,23 @@ app.put('/api/analysis/:contentId', requireRole('owner', 'marketing'), async (c)
   // Resolve every pasted platform video id. Multiple refs are allowed (locked
   // 2026-09-10): a video can have a YouTube twin AND an Instagram twin at once.
   const refContentIds: string[] = [];
-  const seen = new Set<string>();
+  const seenRefs = new Set<string>();
   for (const pastedId of body.crossPlatformVideoIds) {
     const paired = await memory.content.findByPlatformVideoId(pastedId);
     if (paired === null || paired.id === undefined) return c.json({ error: 'ref_not_found', ref: pastedId }, 400);
     if (paired.id === contentId) return c.json({ error: 'ref_is_self', ref: pastedId }, 400);
     if (paired.platform === target.platform) return c.json({ error: 'ref_same_platform', ref: pastedId }, 400);
-    if (!seen.has(paired.id)) {
-      seen.add(paired.id);
+    if (!seenRefs.has(paired.id)) {
+      seenRefs.add(paired.id);
       refContentIds.push(paired.id);
     }
   }
 
-  if (body.adStartDate !== null && body.adEndDate !== null && body.adEndDate < body.adStartDate) {
-    return c.json({ error: 'ad_end_before_start' }, 400);
+  // Each ad run's own dates must be internally consistent.
+  for (const run of body.adRuns) {
+    if (run.startDate !== null && run.endDate !== null && run.endDate < run.startDate) {
+      return c.json({ error: 'ad_end_before_start' }, 400);
+    }
   }
 
   const known = [...IDEA_SOURCE_SEEDS, ...(await memory.contentAnalysis.distinctIdeaSources())];
@@ -450,16 +469,14 @@ app.put('/api/analysis/:contentId', requireRole('owner', 'marketing'), async (c)
     hasCta: body.hasCta,
     ctaType: body.hasCta === true ? body.ctaType : null,
     adBoosted: body.adBoosted,
-    // Dates/spend only make sense once we know an ad ran; "don't know" clears them same as "no".
-    adStartDate: body.adBoosted === true ? body.adStartDate : null,
-    adEndDate: body.adBoosted === true ? body.adEndDate : null,
-    adSpendCents: body.adBoosted === true ? body.adSpendCents : null,
     ideaSource: canonicalIdeaSource(body.ideaSource, known),
     analysedBy: auth.email,
     analysedAt: new Date().toISOString(),
   };
   await memory.contentAnalysis.upsert(row);
   await memory.contentAnalysisRefs.set(contentId, refContentIds);
+  // Runs only make sense once we know an ad ran; "don't know" and "no" both clear them.
+  await memory.contentAdRuns.set(contentId, body.adBoosted === true ? body.adRuns : []);
   // Required (X1): the structured fields are the only source for these columns.
   const hypothesis = deriveHypothesis(row);
   await memory.content.setTags(contentId, { hook: row.hookText, format: row.format, hypothesis });
@@ -470,8 +487,9 @@ app.put('/api/analysis/:contentId', requireRole('owner', 'marketing'), async (c)
     .map((id) => byId.get(id))
     .filter((v): v is (typeof content)[number] => v !== undefined && v.id !== undefined)
     .map((v) => ({ id: v.id as string, platform: v.platform, platformVideoId: v.platformVideoId, title: v.title }));
+  const savedRuns = body.adBoosted === true ? await memory.contentAdRuns.all().then((all) => all.filter((r) => r.contentId === contentId)) : [];
 
-  return c.json({ ok: true, analysis: row, refs, tags: { hook: row.hookText, format: row.format, hypothesis } });
+  return c.json({ ok: true, analysis: row, refs, adRuns: savedRuns, tags: { hook: row.hookText, format: row.format, hypothesis } });
 });
 
 /** Revenue-adjacent (enrollment counts): owner only — locked, no marketing view of this route. */
