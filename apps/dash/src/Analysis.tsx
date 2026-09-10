@@ -144,26 +144,22 @@ export function Analysis() {
   };
 
   const chip = (label: string, active: boolean, onClick: () => void) => (
-    <button key={label} className={`nav-item ${active ? 'active' : ''}`}
-      style={{ display: 'inline-block', width: 'auto', marginRight: 6, marginBottom: 6 }} onClick={onClick}>
-      {label}
-    </button>
+    <button key={label} type="button" className={`chip ${active ? 'active' : ''}`} onClick={onClick}>{label}</button>
   );
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: selected === null ? '1fr' : 'minmax(0, 1.1fr) minmax(360px, 0.9fr)', gap: 16, alignItems: 'start' }}>
       <div className="card">
-        <div style={{ marginBottom: 8 }}>
+        <div className="chips">
           {platforms.map((p) => chip(p, p === platform, () => setPlatform(p)))}
-          <span style={{ display: 'inline-block', width: 14 }} />
+          <span style={{ width: 10 }} />
           {chip('All', analysed === 'all', () => setAnalysed('all'))}
           {chip('Not yet', analysed === 'todo', () => setAnalysed('todo'))}
           {chip('Analysed', analysed === 'done', () => setAnalysed('done'))}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or video ID"
-            style={{ width: '100%', boxSizing: 'border-box' }} />
-          <div className="dim" style={{ marginTop: 6, fontSize: 12 }}>
+          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or video ID" />
+          <div className="hint">
             {visible.length} shown · {doneCount} of {data.videos.length} analysed · click a row to open its form
           </div>
         </div>
@@ -212,6 +208,15 @@ export function Analysis() {
   );
 }
 
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
   video: AnalysisVideo;
   ideaSources: string[];
@@ -220,7 +225,7 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
 }) {
   const [f, setF] = useState<FormState>(() => toForm(video));
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [refEcho, setRefEcho] = useState<RefEcho | null | 'missing'>(video.crossPlatformRefVideo === null ? null : { ...video.crossPlatformRefVideo, postedAt: '' });
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((prev) => ({ ...prev, [k]: v }));
@@ -248,33 +253,27 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         ? { id: refEcho.id, platform: refEcho.platform, platformVideoId: refEcho.platformVideoId, title: refEcho.title }
         : null;
       onSaved({ ...video, analysis: result.analysis, crossPlatformRefVideo: refVideo });
-      setMsg('Saved.');
+      setMsg({ text: 'Saved.', ok: true });
     } catch (e) {
       const code = e instanceof Error ? e.message : 'error';
-      setMsg(ERROR_TEXT[code] ?? `Could not save: ${code}`);
+      setMsg({ text: ERROR_TEXT[code] ?? `Could not save: ${code}`, ok: false });
     } finally {
       setSaving(false);
     }
   };
 
-  const row = (label: string, control: JSX.Element) => (
-    <label style={{ display: 'block', marginBottom: 12 }}>
-      <div className="dim" style={{ fontSize: 12, marginBottom: 4 }}>{label}</div>
-      {control}
-    </label>
-  );
-  const full = { width: '100%', boxSizing: 'border-box' as const };
-
   return (
     <div className="card" style={{ position: 'sticky', top: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div>
-          <div style={{ fontWeight: 600 }}>{video.title ?? '(untitled)'}</div>
-          <div className="dim" style={{ fontSize: 12 }}>{video.platform} · {video.platformVideoId} · posted {video.postedAt.slice(0, 10)}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={video.title ?? ''}>
+            {video.title ?? '(untitled)'}
+          </div>
+          <div className="hint" style={{ marginTop: 2 }}>{video.platform} · {video.platformVideoId} · posted {video.postedAt.slice(0, 10)}</div>
         </div>
-        <button className="nav-item" style={{ width: 'auto' }} onClick={onClose}>Close</button>
+        <button type="button" className="btn ghost" onClick={onClose}>Close</button>
       </div>
-      <div style={{ margin: '10px 0 14px', fontSize: 13 }}>
+      <div style={{ margin: '10px 0 16px', fontSize: 13 }}>
         {m === null ? <span className="dim">No snapshot captured yet.</span> : [
           metric('Views', m.views.toLocaleString()),
           metric('Likes', m.likes.toLocaleString()),
@@ -287,90 +286,91 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         ]}
       </div>
       {video.analysis !== null && (
-        <div className="dim" style={{ fontSize: 12, marginBottom: 10 }}>
+        <div className="hint" style={{ marginBottom: 12 }}>
           Last saved by {video.analysis.analysedBy} on {video.analysis.analysedAt.slice(0, 16).replace('T', ' ')} UTC — edit and save again to update.
         </div>
       )}
 
-      {row('Idea source — who had the idea (not who filmed/edited/posted)', (
-        <div>
-          <div style={{ marginBottom: 6 }}>
-            {ideaSources.map((s) => (
-              <button key={s} className={`nav-item ${f.ideaSource === s ? 'active' : ''}`}
-                style={{ display: 'inline-block', width: 'auto', marginRight: 6, marginBottom: 6 }}
-                onClick={(e) => { e.preventDefault(); set('ideaSource', s); }}>{s}</button>
-            ))}
-          </div>
-          <input style={full} value={f.ideaSource} onChange={(e) => set('ideaSource', e.target.value)} placeholder="Or type a new name" />
+      <Field label="Idea source — who had the idea (not who filmed/edited/posted)">
+        <div className="chips">
+          {ideaSources.map((s) => (
+            <button key={s} type="button" className={`chip ${f.ideaSource === s ? 'active' : ''}`}
+              onClick={() => set('ideaSource', f.ideaSource === s ? '' : s)}>{s}</button>
+          ))}
         </div>
-      ))}
+        <input className="input" value={f.ideaSource} onChange={(e) => set('ideaSource', e.target.value)} placeholder="Or type a new name" />
+      </Field>
 
-      {row('Description', <textarea style={{ ...full, minHeight: 80 }} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder="What the video is, in a few sentences" />)}
-      {row('Hook text (first line / on-screen opener)', <input style={full} value={f.hookText} onChange={(e) => set('hookText', e.target.value)} />)}
+      <Field label="Description">
+        <textarea className="textarea" value={f.description} onChange={(e) => set('description', e.target.value)} placeholder="What the video is, in a few sentences" />
+      </Field>
+      <Field label="Hook text (first line / on-screen opener)">
+        <input className="input" value={f.hookText} onChange={(e) => set('hookText', e.target.value)} />
+      </Field>
 
-      {row('Format', (
-        <div>
-          <select style={full} value={f.formatChoice} onChange={(e) => set('formatChoice', e.target.value)}>
-            <option value="">—</option>
-            {FORMAT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-            <option value={OTHER}>{OTHER}</option>
-          </select>
-          {f.formatChoice === OTHER && <input style={{ ...full, marginTop: 6 }} value={f.formatOther} onChange={(e) => set('formatOther', e.target.value)} placeholder="Describe the format" />}
-        </div>
-      ))}
+      <Field label="Format">
+        <select className="select" value={f.formatChoice} onChange={(e) => set('formatChoice', e.target.value)}>
+          <option value="">Choose…</option>
+          {FORMAT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+          <option value={OTHER}>{OTHER}</option>
+        </select>
+        {f.formatChoice === OTHER && <input className="input" style={{ marginTop: 6 }} value={f.formatOther} onChange={(e) => set('formatOther', e.target.value)} placeholder="Describe the format" />}
+      </Field>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {row('Model on camera?', (
-          <select style={full} value={f.hasModel} onChange={(e) => set('hasModel', e.target.value as FormState['hasModel'])}>
-            <option value="">—</option><option value="yes">Yes</option><option value="no">No</option>
+      <div className="row2">
+        <Field label="Model on camera?">
+          <select className="select" value={f.hasModel} onChange={(e) => set('hasModel', e.target.value as FormState['hasModel'])}>
+            <option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option>
           </select>
-        ))}
-        {row('Has a CTA?', (
-          <select style={full} value={f.hasCta} onChange={(e) => set('hasCta', e.target.value as FormState['hasCta'])}>
-            <option value="">—</option><option value="yes">Yes</option><option value="no">No</option>
+        </Field>
+        <Field label="Has a CTA?">
+          <select className="select" value={f.hasCta} onChange={(e) => set('hasCta', e.target.value as FormState['hasCta'])}>
+            <option value="">Choose…</option><option value="yes">Yes</option><option value="no">No</option>
           </select>
-        ))}
+        </Field>
       </div>
 
-      {f.hasCta === 'yes' && row('CTA type — what the video asks the viewer to do', (
-        <div>
-          <select style={full} value={f.ctaChoice} onChange={(e) => set('ctaChoice', e.target.value)}>
-            <option value="">—</option>
+      {f.hasCta === 'yes' && (
+        <Field label="CTA type — what the video asks the viewer to do">
+          <select className="select" value={f.ctaChoice} onChange={(e) => set('ctaChoice', e.target.value)}>
+            <option value="">Choose…</option>
             {CTA_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
             <option value={OTHER}>{OTHER}</option>
           </select>
-          {f.ctaChoice === OTHER && <input style={{ ...full, marginTop: 6 }} value={f.ctaOther} onChange={(e) => set('ctaOther', e.target.value)} placeholder="Describe the CTA" />}
-        </div>
-      ))}
+          {f.ctaChoice === OTHER && <input className="input" style={{ marginTop: 6 }} value={f.ctaOther} onChange={(e) => set('ctaOther', e.target.value)} placeholder="Describe the CTA" />}
+        </Field>
+      )}
 
-      <label style={{ display: 'block', marginBottom: 12 }}>
-        <input type="checkbox" checked={f.adBoosted} onChange={(e) => set('adBoosted', e.target.checked)} /> Ad boosted (manual entry — no paid/organic split until X4)
+      <label className="check">
+        <input type="checkbox" checked={f.adBoosted} onChange={(e) => set('adBoosted', e.target.checked)} />
+        <span className="check-box" aria-hidden="true">
+          <svg viewBox="0 0 12 12"><path d="M2 6.5l2.6 2.5L10 3.5" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </span>
+        <span>Ad boosted <span className="dim">(manual entry — no paid/organic split until X4)</span></span>
       </label>
       {f.adBoosted && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-          {row('Ad start', <input type="date" style={full} value={f.adStartDate} onChange={(e) => set('adStartDate', e.target.value)} />)}
-          {row('Ad end', <input type="date" style={full} value={f.adEndDate} onChange={(e) => set('adEndDate', e.target.value)} />)}
-          {row('Spend ($)', <input type="number" min="0" step="0.01" style={full} value={f.adSpendDollars} onChange={(e) => set('adSpendDollars', e.target.value)} />)}
+        <div className="row3">
+          <Field label="Ad start"><input type="date" className="input" value={f.adStartDate} onChange={(e) => set('adStartDate', e.target.value)} /></Field>
+          <Field label="Ad end"><input type="date" className="input" value={f.adEndDate} onChange={(e) => set('adEndDate', e.target.value)} /></Field>
+          <Field label="Spend ($)"><input type="number" min="0" step="0.01" className="input" value={f.adSpendDollars} onChange={(e) => set('adSpendDollars', e.target.value)} placeholder="0.00" /></Field>
         </div>
       )}
 
-      {row('Paired video on another platform — paste its video ID', (
-        <div>
-          <input style={full} value={f.crossPlatformVideoId} onChange={(e) => set('crossPlatformVideoId', e.target.value)} placeholder="Platform video ID" />
-          <div className="dim" style={{ fontSize: 12, marginTop: 4 }}>
-            {f.crossPlatformVideoId.trim() === '' ? 'Leave blank if there is no twin.'
-              : refEcho === 'missing' ? 'No video with that ID in the data.'
-              : refEcho === null ? 'Looking up…'
-              : `→ ${refEcho.platform}: ${refEcho.title ?? '(untitled)'}`}
-          </div>
+      <Field label="Paired video on another platform — paste its video ID">
+        <input className="input" value={f.crossPlatformVideoId} onChange={(e) => set('crossPlatformVideoId', e.target.value)} placeholder="Platform video ID" />
+        <div className={`hint ${f.crossPlatformVideoId.trim() === '' ? '' : refEcho === 'missing' ? 'bad' : refEcho === null ? '' : 'ok'}`}>
+          {f.crossPlatformVideoId.trim() === '' ? 'Leave blank if there is no twin.'
+            : refEcho === 'missing' ? 'No video with that ID in the data.'
+            : refEcho === null ? 'Looking up…'
+            : `→ ${refEcho.platform}: ${refEcho.title ?? '(untitled)'}`}
         </div>
-      ))}
+      </Field>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <button className="nav-item active" style={{ width: 'auto' }} disabled={saving} onClick={() => void submit()}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <button type="button" className="btn primary" disabled={saving} onClick={() => void submit()}>
           {saving ? 'Saving…' : video.analysis === null ? 'Save analysis' : 'Save changes'}
         </button>
-        {msg !== null && <span className="dim" style={{ fontSize: 13 }}>{msg}</span>}
+        {msg !== null && <span className={`hint ${msg.ok ? 'ok' : 'bad'}`} style={{ marginTop: 0 }}>{msg.text}</span>}
       </div>
     </div>
   );
