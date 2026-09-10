@@ -121,9 +121,6 @@ export interface ContentAnalysis {
   ctaType: string | null;
   /** Tri-state (locked 2026-09-10): true boosted / false not boosted / null don't know. */
   adBoosted: boolean | null;
-  adStartDate: string | null;
-  adEndDate: string | null;
-  adSpendCents: number | null;
   ideaSource: string | null;
   analysedBy: string;
   analysedAt: string;
@@ -137,6 +134,19 @@ export interface PairedVideoRef {
   title: string | null;
 }
 
+/**
+ * One ad campaign run against a video (locked 2026-09-10: a video can have
+ * more than one run over its life, e.g. re-boosted months apart). No total —
+ * per-run spend only; a combined figure is computed at report time (X5).
+ */
+export interface AdRun {
+  id: string;
+  contentId: string;
+  startDate: string | null;
+  endDate: string | null;
+  spendCents: number | null;
+}
+
 export interface AnalysisVideo {
   id: string;
   platform: string;
@@ -146,6 +156,7 @@ export interface AnalysisVideo {
   /** Latest snapshot, or null when the sync has not captured this video yet. */
   metrics: (PerformanceRecord['metrics'] & { capturedDate: string }) | null;
   analysis: ContentAnalysis | null;
+  adRuns: AdRun[];
   /** 0..N equivalent videos on other platforms (locked 2026-09-10: more than one at once, e.g. YouTube + Instagram twins). */
   crossPlatformRefVideos: PairedVideoRef[];
 }
@@ -156,6 +167,12 @@ export interface AnalysisPayload {
   ideaSources: string[];
 }
 
+export interface AdRunBody {
+  startDate: string | null;
+  endDate: string | null;
+  spendCents: number | null;
+}
+
 export interface AnalysisBody {
   description: string | null;
   hookText: string | null;
@@ -164,9 +181,7 @@ export interface AnalysisBody {
   hasCta: boolean | null;
   ctaType: string | null;
   adBoosted: boolean | null;
-  adStartDate: string | null;
-  adEndDate: string | null;
-  adSpendCents: number | null;
+  adRuns: AdRunBody[];
   crossPlatformVideoIds: string[];
   ideaSource: string | null;
 }
@@ -194,6 +209,6 @@ export async function lookupRef(platformVideoId: string): Promise<RefEcho | null
 export function saveAnalysis(
   contentId: string,
   body: AnalysisBody
-): Promise<{ ok: true; analysis: ContentAnalysis; refs: PairedVideoRef[] }> {
+): Promise<{ ok: true; analysis: ContentAnalysis; refs: PairedVideoRef[]; adRuns: AdRun[] }> {
   return sendJson('PUT', `/api/analysis/${contentId}`, body);
 }

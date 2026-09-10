@@ -21,6 +21,8 @@ import type { SupabaseConfig } from './config.js';
  * X1 (docs/spec/x-series.md): one manual analysis per content row.
  * Every classification field is plain text by design — see migration 0005.
  * adBoosted is tri-state (migration 0006): true / false / null ("don't know").
+ * Ad dates/spend moved to contentAdRuns (migration 0007) — a video can be
+ * boosted more than once over its life, each run with its own dates/spend.
  */
 export interface ContentAnalysisRow {
   contentId: string;
@@ -31,9 +33,6 @@ export interface ContentAnalysisRow {
   hasCta: boolean | null;
   ctaType: string | null;
   adBoosted: boolean | null;
-  adStartDate: string | null;
-  adEndDate: string | null;
-  adSpendCents: number | null;
   ideaSource: string | null;
   analysedBy: string;
   analysedAt: string;
@@ -53,6 +52,20 @@ export interface RefPair {
 }
 
 /**
+ * X1 follow-up (migration 0007, locked 2026-09-10): one ad campaign run
+ * against a video. A video can have any number of runs (re-boosted at
+ * different times) — no auto-summed total is stored; any combined spend
+ * figure is computed at report time (X5), not here.
+ */
+export interface AdRun {
+  id: string;
+  contentId: string;
+  startDate: string | null;
+  endDate: string | null;
+  spendCents: number | null;
+}
+
+/**
  * Typed read/write helpers for the §3 memory tables. Insert helpers validate
  * with Zod before writing; read helpers validate after reading.
  * M4 adds: brandAssets.updateEmbeddings + search (pgvector via match_brand_assets),
@@ -63,6 +76,8 @@ export interface RefPair {
  * path that ever fills content.hook / .format / .hypothesis.
  * X1 follow-up adds: contentAnalysisRefs (migration 0006) — multiple
  * cross-platform pairs per video, replacing the single cross_platform_ref column.
+ * X1 follow-up adds: contentAdRuns (migration 0007) — multiple ad campaigns
+ * per video, replacing the single ad_start_date/ad_end_date/ad_spend_cents columns.
  */
 export interface MemoryClient {
   brandAssets: {
@@ -99,6 +114,12 @@ export interface MemoryClient {
      * other videos' own saves are left untouched.
      */
     set: (contentId: string, refContentIds: string[]) => Promise<void>;
+  };
+  contentAdRuns: {
+    /** Every stored run, across all videos. */
+    all: () => Promise<AdRun[]>;
+    /** Fully replace this video's ad runs (a video's runs are owned only by its own save, no cross-video sharing to preserve). */
+    set: (contentId: string, runs: Array<{ startDate: string | null; endDate: string | null; spendCents: number | null }>) => Promise<void>;
   };
   performance: {
     insert: (row: PerformanceRecord) => Promise<void>;
@@ -165,9 +186,6 @@ function parseContentAnalysisRow(r: Record<string, unknown>): ContentAnalysisRow
     hasCta: bool(r['has_cta']),
     ctaType: text(r['cta_type']),
     adBoosted: bool(r['ad_boosted']),
-    adStartDate: text(r['ad_start_date']),
-    adEndDate: text(r['ad_end_date']),
-    adSpendCents: r['ad_spend_cents'] === null || r['ad_spend_cents'] === undefined ? null : Number(r['ad_spend_cents']),
     ideaSource: text(r['idea_source']),
     analysedBy: String(r['analysed_by']),
     analysedAt: new Date(String(r['analysed_at'])).toISOString(),
@@ -326,9 +344,6 @@ export function createMemoryClientFromConfig(
             has_cta: row.hasCta,
             cta_type: row.ctaType,
             ad_boosted: row.adBoosted,
-            ad_start_date: row.adStartDate,
-            ad_end_date: row.adEndDate,
-            ad_spend_cents: row.adSpendCents,
             idea_source: row.ideaSource,
             analysed_by: row.analysedBy,
             analysed_at: row.analysedAt,
@@ -386,6 +401,34 @@ export function createMemoryClientFromConfig(
           .from('content_analysis_refs')
           .upsert([...forward, ...mirror], { onConflict: 'content_id,ref_content_id', ignoreDuplicates: true });
         if (insErr) fail('content_analysis_refs', 'insert', insErr.message);
+      },
+    },
+    contentAdRuns: {
+      async all() {
+        const { data, error } = await db.from('content_ad_runs').select('id, content_id, start_date, end_date, spend_cents');
+        if (error) fail('content_ad_runs', 'select', error.message);
+        return (data ?? []).map((r) => ({
+          id: String(r['id']),
+          contentId: String(r['content_id']),
+          startDate: r['start_date'] === null ? null : String(r['start_date']),
+          endDate: r['end_date'] === null ? null : String(r['end_date']),
+          spendCents: r['spend_cents'] === null || r['spend_cents'] === undefined ? null : Number(r['spend_cents']),
+        }));
+      },
+      async set(contentId, runs) {
+        // Full replace — a video's own runs aren't shared with any other
+        // video, unlike refs, so no mirror bookkeeping is needed here.
+        const { error: delErr } = await db.from('content_ad_runs').delete().eq('content_id', contentId);
+        if (delErr) fail('content_ad_runs', 'delete existing', delErr.message);
+        if (runs.length === 0) return;
+        const rows = runs.map((r) => ({
+          content_id: contentId,
+          start_date: r.startDate,
+          end_date: r.endDate,
+          spend_cents: r.spendCents,
+        }));
+        const { error: insErr } = await db.from('content_ad_runs').insert(rows);
+        if (insErr) fail('content_ad_runs', 'insert', insErr.message);
       },
     },
     performance: {

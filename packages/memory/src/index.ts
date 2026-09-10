@@ -7,7 +7,7 @@ import { createMemoryClientFromConfig, type MemoryClient } from './client.js';
 export { JsonFileLogStore, type LogStore } from './log-store.js';
 export { readSupabaseConfig, type SupabaseConfig } from './config.js';
 export { SupabaseLogStore } from './supabase-log-store.js';
-export { createMemoryClientFromConfig, type MemoryClient, type ContentAnalysisRow, type RefPair } from './client.js';
+export { createMemoryClientFromConfig, type MemoryClient, type ContentAnalysisRow, type RefPair, type AdRun } from './client.js';
 export { monthlyKpis, type MonthlyKpis } from './kpis.js';
 
 /**
@@ -29,9 +29,9 @@ export function createLogStore(): LogStore {
 
 /**
  * Typed table helpers (brand_assets, content, performance, conversations,
- * enrollments, demo_log — §3; content_analysis, content_analysis_refs — X1).
- * Requires Supabase env vars — there is no JSON fallback for memory tables,
- * only for agent_logs.
+ * enrollments, demo_log — §3; content_analysis, content_analysis_refs,
+ * content_ad_runs — X1). Requires Supabase env vars — there is no JSON
+ * fallback for memory tables, only for agent_logs.
  */
 export function createMemoryClient(): MemoryClient {
   const config = readSupabaseConfig();
