@@ -1,0 +1,143 @@
+# The X-series — one plan for marketing + sales
+
+Status as of 2026-09-10. **This is the single plan.** Everything previously scattered across `content-analysis.md`, the M4.5 "open items from 4.5" list, and the M6/M7 placeholders is consolidated here, ordered by what has to happen first.
+
+Milestones are prefixed X to keep them apart from the historical M-series (M1–M5 describe what was already built; they are history, not a plan).
+
+**Renumbering note:** the 2026-09-09 draft numbered content analysis as X1. Auth turned out to block it, so auth became X0 and the rest shifted. Old X1→new X1 (unchanged), old X2→X2, old X3→X4, old X4→X5, old X5→X6, old X6→X9.
+
+---
+
+## Where things actually stand
+
+Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
+
+Not built: everything below.
+
+The dashboard currently sits behind one interim HTTP Basic password with no role distinction. **Only Jas can use it.** Nobody else can be given access until X0 ships — that is why X0 is first.
+
+---
+
+## Track A — code, in order
+
+### X0 — Access: portal Google login → dash
+**Why first:** Eknoor cannot be given the dashboard at all until this exists. Every other milestone is work she can't reach. Also removes a static password currently guarding revenue data on a public URL.
+
+- Portal repo: a Supabase Edge Function that checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. **New infra — nothing is deployed to that project's Edge Functions today.**
+- Portal repo: `src/pages/Analytics.jsx` (currently a placeholder) calls that function, then opens `DASH_URL?token=…` in a new tab. This is integration Step 3.
+- Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role. Replaces the Basic Auth middleware.
+- Shared signing secret in both Railway and the portal's Edge Function secrets.
+- **Locked:** no standalone dash login, no direct Railway URL access ever. Portal is the only door.
+- Design detail in `portal-integration.md`'s Auth section.
+
+**Role permissions (locked, mechanism-independent):**
+- `owner` — everything.
+- `marketing` — Analysis, Suggestions, Idea map, Performance. **No revenue anywhere.** No Run log.
+- `salesman` — nothing on this dash yet; revisit at X7.
+
+### X1 — Eknoor inputs content analysis
+**Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
+
+- New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), analysed_by, analysed_at.
+- `/analysis` page in `apps/dash`: every TikTok + YouTube video with title, posted date, latest views/likes/comments/shares, YouTube watch time where present, and a per-video form.
+- `/api/analysis/*` read + write routes, authenticated by whatever session X0 establishes — never by a baked-in `VITE_` token.
+- Map the structured fields onto `content.hook` / `.format` / `.hypothesis` where they fit, so the existing suggestions agent benefits immediately.
+- **Ad data is manual entry here.** A true paid/organic split needs X4.
+
+### X2 — Derived metrics
+**Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
+
+- comment rate, share rate, engagement rate (as % of views)
+- view velocity: views at day 1 / 7 / 30 from snapshot history
+- follower-normalised views (views ÷ followersAtCapture at post time)
+- cross-platform side-by-side for paired videos
+- before/after-ad view split from snapshots + X1's manual ad dates — **a time split, not a true paid/organic split. Label it as such wherever it appears.**
+- **Decide here:** `performance.content_id` holds platform-native video ids, not content UUIDs (the M4.5 bug). Every join must go through `content.platformVideoId`. X2 does the heaviest joining in the project — either migrate to a real UUID FK now or amend the stale schema comment in `performance.ts` and move on. Don't leave it ambiguous for a third milestone.
+
+### X3 — KPI view, rebuilt
+**Why here:** the old KPI tab was erased 2026-09-10 (it printed revenue in plain text). It needs redesigning around roles, which only exist after X0. Also depends on the enrollment reconciliation in Track B — rebuilding a revenue view on numbers known to be wrong would bake in the error.
+
+- Redesign from scratch; the backend routes `/api/kpis` and `/api/kpis/monthly` still exist untouched.
+- Revenue visible to `owner` only. If marketing needs enrollment counts without dollar figures, that is a separate endpoint — never a filtered view of the revenue one.
+- Fold in the reconciliation result from Track B so enrollment figures are honest about what Stripe can and cannot see.
+
+### X4 — TikTok Business API migration
+**Why after X2:** unlocks real TikTok watch time, which every metric in X2 currently has to skip. Placed here rather than earlier because it needs external approval that can't be rushed.
+
+- Replace/augment `packages/integrations/src/tiktok/` Display API calls with the Business/Insights API.
+- Unlocks `average_time_watched`, `total_time_watched`, `full_video_watched_rate`, `video_duration`, `reach`, and `impression_sources`.
+- `impression_sources` gives a paid-vs-organic view split **without any Ads API** — this is the real prize.
+- Prerequisites: TikTok Business account, new app registration and approval, new OAuth scopes. Non-trivial; scope before starting.
+- The "never derive retention" rule stays. This fetches real values; it does not infer them.
+
+### X5 — Ad analytics
+**Depends on X4.**
+
+- Real paid/organic split from `impression_sources`, replacing X2's time-based approximation.
+- Cost per view and cost per enrollment-in-window, using X1's manual spend entries.
+- Ads APIs (TikTok Marketing, Google Ads) only if spend grows enough to justify separate app approvals. Not before.
+
+### X6 — Agent correlation + the closed loop
+**Depends on X1 having real volume — roughly 50 analysed videos. Can start before X4/X5.**
+
+- New agent task: read `content_analysis` + performance + X2's derived metrics, output what works and what doesn't, with the evidence for each claim.
+- Auto-suggest `hypothesis` tags from Eknoor's descriptions.
+- **Idea map edges** (carried over from the M4.5 open list): draw suggestion → source videos → outcome, so the map shows whether an idea actually worked. Belongs here — the data to draw those edges is exactly what this milestone produces.
+- **Standing caution:** 221 videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one.
+
+### X7 — Sales analyst (was M6)
+**Deliberately last of the build work.** Marketing has real data flowing and a person ready to use it; sales has neither yet.
+
+- Sales-side equivalent of the analyst agent.
+- Decide at that point whether Harman gets a slice of this dash or whether sales output lives entirely in the portal's Offers tab. Currently open, currently blocking nothing.
+
+### X8 — Hardening (was M7)
+- Loop hardening, error handling, whatever the previous milestones surfaced.
+- Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
+
+### X9 — Instagram + Facebook
+**Blocked externally, not by us. See Track B.**
+
+- Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
+- Slots in whenever the blocker clears, at whatever point that happens to be.
+
+---
+
+## Track B — not code, needs a person
+
+These run in parallel and are not blocked by any milestone above. Two of them block milestones.
+
+**B1 — Instagram access (blocks X9).** The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped. **Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on.
+
+**B2 — Enrollment reconciliation (blocks X3).** Stripe shows 15–33 completed enrollments/month against a stated 60/month baseline. E-transfer and manual invoices bypass Checkout entirely, so they are invisible to every number this system produces. Reconcile before the day-90 review, and before rebuilding any KPI view on top of the gap.
+
+**B3 — Hypothesis taxonomy v2.** A team member is open-coding the back-catalogue. Until it's consolidated, `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only. X1 partially replaces the need for this — Eknoor's structured descriptions are a richer version of the same idea — so **check whether B3 is still worth finishing once X1 is live**, rather than doing both.
+
+**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. Check at the next convenient moment.
+
+---
+
+## Scope decisions (locked 2026-09-09/10)
+
+- Platforms: **TikTok + YouTube only** until X9.
+- **Videos only.** Photos and carousels dropped.
+- Same video on both platforms must be pairable for cross-platform comparison.
+- The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
+- Access is via portal Google login only. No standalone dash password after X0.
+
+## Data reality (verified against repo + DB, 2026-09-09)
+
+- `content`: platform, platformVideoId, title, `hook` (null), `format` (null), `hypothesis` (null — CSV header-only), postedAt. 155 TikTok + 66 YouTube = 221 videos.
+- `performance`: **daily snapshot per video** — views, likes, comments, shares, saves, avgWatchTimeSeconds, retentionPct, followersAtCapture. Snapshots accumulate nightly, so growth over time is derivable.
+- YouTube: watch time + retention present. Shares always 0 (Data API doesn't expose them).
+- TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 fixes it. `sync.ts` has a locked rule against deriving them meanwhile.
+- **No ad data anywhere** until X1's manual entry.
+- **No enrollment attribution.** Stripe enrollments carry no link to a video, ever.
+- `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**.
+- `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
+- KPI tab content was erased 2026-09-10 pending X3. Backend routes untouched.
+
+## Not in scope
+- Photos, carousels, stories
+- Enrollment attribution at the video level — no data source exists
+- Rebuilding the dash natively inside the portal (Option B) — that stays an M7-era idea, not a plan
