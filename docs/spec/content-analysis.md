@@ -1,6 +1,6 @@
 # Content Analysis — the X-series
 
-Status: **scoped, nothing built.** Decided 2026-09-09. Milestones are prefixed X to keep them apart from the platform's M-series.
+Status: **scoped, nothing built.** Decided 2026-09-09, auth plan updated 2026-09-10. Milestones are prefixed X to keep them apart from the platform's M-series.
 
 ## Purpose
 
@@ -12,7 +12,7 @@ Close the loop between creative choices and outcomes. Eknoor (marketing) watches
 - **Videos only.** Photos and carousels dropped.
 - Same video posted to both platforms must be **pairable**, so cross-platform comparison is possible.
 - Ad data starts as **manual entry** by Eknoor. True paid/organic split arrives with the TikTok Business API (X3).
-- Lives inside the hosted dash (`apps/api` serving `apps/dash`, single origin, HTTP Basic) — see `portal-integration.md`. Not a portal page.
+- Lives inside the hosted dash (`apps/api` serving `apps/dash`, single origin) — see `portal-integration.md`. Not a portal page. Access is via the portal's Google login only, never a standalone dash password — see `portal-integration.md`'s Auth section.
 
 ## What exists today (verified against repo + DB, 2026-09-09)
 
@@ -23,7 +23,7 @@ Close the loop between creative choices and outcomes. Eknoor (marketing) watches
 - **No ad data anywhere.** No spend, no boosted flag, no paid/organic split.
 - **No enrollment attribution.** Stripe enrollments carry no link to a video. Any "what drives enrollments" answer is time-correlation only. Say so in every output that touches it.
 - Write path: `POST /api/suggestions/:id/status` uses a bearer `API_WRITE_TOKEN`. The dash's `VITE_API_WRITE_TOKEN` is baked into the client bundle at build time and **must never be set on a hosted build**.
-- Current dash (`apps/dash/src/App.tsx`) is a single-page client with five sidebar tabs — Suggestions, Idea map, Performance, KPIs, Run log — switched by local React state, not routes. One HTTP Basic password currently gates the whole bundle and every `/api/*` route beneath it; there is no per-route authorization by username yet.
+- Current dash (`apps/dash/src/App.tsx`) is a single-page client with five sidebar tabs — Suggestions, Idea map, Performance, KPIs, Run log — switched by local React state, not routes. **Interim** HTTP Basic password currently gates the whole bundle and every `/api/*` route; being replaced by the portal-token auth in `portal-integration.md` — not yet built, current password keeps working until then.
 - `Run log` (`/api/logs`) is an engineering debug view — every agent tool call, status, duration, error — with no revenue or content data in it.
 - **`KPIs` (`/api/kpis` + `/api/kpis/monthly`) shows revenue directly.** `Kpis.tsx`'s monthly breakdown table renders a `Revenue` column in dollars (`revenueCents` from Stripe-visible enrollments) alongside enrollments, videos posted, tagged count, and suggestion counts. Revenue is not separable from the rest of that endpoint's response without a new endpoint — the two are fetched and rendered together.
 
@@ -38,16 +38,15 @@ Goal: a page Eknoor can use on day one to describe videos, with the existing met
 
 - New table `content_analysis` (one row per content row): description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (the paired content id on the other platform), analysed_by, analysed_at.
 - Page lists every TikTok + YouTube video with title, posted date, latest views/likes/comments/shares, and YouTube watch time where present. Per-video form for the fields above.
-- **Write path:** analysis writes authenticate via the HTTP Basic session already on every request — NOT via a baked-in `VITE_` token. This is the fix for the write-token problem for these routes.
+- **Write path:** analysis writes authenticate via whatever session the portal-token auth establishes (see `portal-integration.md`) — NOT via a baked-in `VITE_` token.
 
-**Visibility decision — LOCKED 2026-09-09 (Jas confirmed):**
-- Two Basic-auth users: `owner` and `marketing`. Role = which password.
-- Enforcement is **server-side, by authenticated username, inside `apps/api`** — not just hiding sidebar buttons in the client. The whole `apps/dash` bundle is one JS file today; hiding a nav button does not stop a request straight to an API route. Every route handler must check which username authenticated and refuse `marketing` where it doesn't belong, same enforcement style as the existing `API_WRITE_TOKEN` check.
-- `marketing` password gets: the new `/analysis` page and its data (video list + metrics + the `content_analysis` fields), Suggestions, Idea map, Performance. **No revenue, anywhere.**
-- `marketing` password does NOT get: Run log (agent debug view, not marketing-relevant) or KPIs (revenue is embedded in its response and not separable without a new endpoint — see above).
-- If a revenue-free KPI view (enrollment count, videos posted, tagged count, suggestion counts — no dollar figures) is wanted for marketing later, that is a new endpoint, not a reuse of `/api/kpis/monthly`. Not in X1 scope; note it as a possible X1.5 if Jas wants it.
-- `owner` password keeps everything, unchanged.
-- This is a pragmatic answer to `portal-integration.md`'s open per-role question, scoped to this dash — it does not resolve that question for the portal tab itself.
+**Visibility — SUPERSEDED 2026-09-10.** The two-Basic-auth-password plan below is replaced by `portal-integration.md`'s Auth section: role comes from a signed token the portal hands the dash when someone clicks the Analytics tab, not from which password they typed. Left here for history:
+
+~~Two Basic-auth users: `owner` and `marketing`. Role = which password.~~
+
+- `marketing` role gets: the new `/analysis` page and its data (video list + metrics + the `content_analysis` fields), Suggestions, Idea map, Performance. **No revenue, anywhere.** This part is unchanged — only the mechanism for determining role changed.
+- `marketing` role does NOT get: Run log (agent debug view, not marketing-relevant) or KPIs (revenue is embedded in its response and not separable without a new endpoint — see above). Unchanged.
+- `owner` role keeps everything, unchanged.
 - Map the structured fields onto the existing `hook` / `format` / `hypothesis` columns on `content` where they fit, so the current suggestions loop benefits immediately.
 
 ### X2 — Derived metrics
