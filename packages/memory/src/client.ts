@@ -78,6 +78,10 @@ export interface AdRun {
  * cross-platform pairs per video, replacing the single cross_platform_ref column.
  * X1 follow-up adds: contentAdRuns (migration 0007) — multiple ad campaigns
  * per video, replacing the single ad_start_date/ad_end_date/ad_spend_cents columns.
+ * Migration 0008 adds content.reclassifyPlatform — lets sync.ts relabel an
+ * existing row's platform in place (e.g. 'youtube' → 'youtube_shorts') without
+ * losing its id, since a naive upsert with a new platform value would insert
+ * a duplicate row instead of correcting the existing one.
  */
 export interface MemoryClient {
   brandAssets: {
@@ -97,6 +101,8 @@ export interface MemoryClient {
     findByPlatformVideoId: (platformVideoId: string) => Promise<ContentRow | null>;
     /** X1: write the derived tags onto a content row. The only writer of these columns. */
     setTags: (id: string, tags: { hook: string | null; format: string | null; hypothesis: string | null }) => Promise<void>;
+    /** Relabel an existing row's platform in place, preserving its id and every FK into it. */
+    reclassifyPlatform: (id: string, platform: string) => Promise<void>;
   };
   contentAnalysis: {
     all: () => Promise<ContentAnalysisRow[]>;
@@ -325,6 +331,10 @@ export function createMemoryClientFromConfig(
           .update({ hook: tags.hook, format: tags.format, hypothesis: tags.hypothesis })
           .eq('id', id);
         if (error) fail('content', 'set tags', error.message);
+      },
+      async reclassifyPlatform(id, platform) {
+        const { error } = await db.from('content').update({ platform }).eq('id', id);
+        if (error) fail('content', 'reclassify platform', error.message);
       },
     },
     contentAnalysis: {
