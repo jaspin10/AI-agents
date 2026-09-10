@@ -346,7 +346,12 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         <span className="check-box" aria-hidden="true">
           <svg viewBox="0 0 12 12"><path d="M2 6.5l2.6 2.5L10 3.5" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </span>
-        <span>Ad boosted <span className="dim">(manual entry — no paid/organic split until X4)</span></span>
+        <span>
+          Ad boosted{' '}
+          <span className="dim">
+            (check TikTok Ads Manager / Meta Ads Manager for this video — manual entry, no paid/organic split until X4)
+          </span>
+        </span>
       </label>
       {f.adBoosted && (
         <div className="row3">
