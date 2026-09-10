@@ -47,10 +47,19 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 **X1 is also the replacement for the old hypothesis-taxonomy effort** (dropped 2026-09-10, see Track B history). `content.hypothesis` gets populated from Eknoor's structured descriptions rather than from a separate hand-built taxonomy — so the mapping onto `content.hook` / `.format` / `.hypothesis` below is not a nice-to-have, it is now the only path by which those columns ever get filled. Treat it as required scope, not an optional extra.
 
 - New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), analysed_by, analysed_at.
-- `/analysis` page in `apps/dash`: every TikTok + YouTube video with title, posted date, latest views/likes/comments/shares, YouTube watch time where present, and a per-video form.
+- `/analysis` page in `apps/dash`: every video in `content` with title, posted date, latest views/likes/comments/shares, watch time where present, and a per-video form.
+- **REQUIRED — build platform-agnostic.** Do NOT hardcode `platform IN ('tiktok','youtube')` anywhere in the query, the UI, the filters, or the schema. The page lists whatever platforms exist in `content`, and the platform filter is derived from the distinct values actually present. When X9 lands and Instagram rows start arriving from the nightly sync, they must appear on this page with **zero changes to X1 code**. Same for any future platform. Missing metrics per platform are already handled by the "show only where present" rule below — that is the same mechanism.
 - `/api/analysis/*` read + write routes, authenticated by whatever session X0 establishes — never by a baked-in `VITE_` token.
 - **Required:** map the structured fields onto `content.hook` / `.format` / `.hypothesis`, so the existing suggestions agent benefits and the tagging gap closes.
+- Show per-platform metrics only where present; never derive or fill a missing one.
 - **Ad data is manual entry here.** A true paid/organic split needs X4.
+
+**Sequencing note (Jas, 2026-09-10):** Jas would prefer Meta access (B1) resolved before Eknoor starts tagging, so she covers all platforms in one pass rather than revisiting videos later. Recorded as a preference, with the trade-off stated plainly so the choice stays deliberate:
+- B1's timeline belongs to a third party and may be days, weeks, or never. Gating X1 on it means Eknoor has nothing to do for an unknown period.
+- Even after B1 clears, Instagram data does not appear until X9 is **built** — B1 is permission, X9 is the integration. Meta app review may add further delay.
+- Tagging is per-video and incremental, so nothing is wasted by starting with the 221 TikTok/YouTube videos already in hand. Instagram videos would simply join the same list later.
+- The platform-agnostic requirement above is what makes waiting unnecessary — it exists precisely so the page doesn't need rework when Instagram arrives.
+- **If B1 has not cleared by the time X0 finishes, start X1 anyway.** Revisit only if B1 resolves quickly.
 
 ### X2 — Derived metrics
 **Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
@@ -116,6 +125,8 @@ Other X3 scope:
 **Blocked externally by B1, not by us.**
 
 - Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
+- **B1 is permission; X9 is the build.** Clearing B1 does not by itself put a single Instagram row in `content` — the integration still has to be written, and Meta app review may add its own delay. Plan for both.
+- Once X9's sync runs, Instagram videos appear on X1's `/analysis` page automatically, because that page is required to be platform-agnostic. No X1 rework.
 - Slots in whenever B1 clears, at whatever point that happens to be. If B1 resolves early, X9 can jump the queue — nothing in X2–X8 depends on it either way.
 
 ---
@@ -150,7 +161,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 
 ## Scope decisions (locked 2026-09-09/10)
 
-- Platforms: **TikTok + YouTube only** until X9.
+- Platforms live today: **TikTok + YouTube**. Instagram/Facebook arrive at X9. **Code must never hardcode the platform list** — see X1.
 - **Videos only.** Photos and carousels dropped.
 - Same video on both platforms must be pairable for cross-platform comparison.
 - The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
