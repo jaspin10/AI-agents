@@ -18,6 +18,8 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 
 **Build order confirmed by Jas 2026-09-10: X0 first.**
 
+**Start B1 now, in parallel.** It is the only item whose timeline depends on someone outside the business, so the clock starts when the ask is made, not when the code is ready. See Track B.
+
 ---
 
 ## Track A — code, in order
@@ -61,11 +63,19 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - **Decide here:** `performance.content_id` holds platform-native video ids, not content UUIDs (the M4.5 bug). Every join must go through `content.platformVideoId`. X2 does the heaviest joining in the project — either migrate to a real UUID FK now or amend the stale schema comment in `performance.ts` and move on. Don't leave it ambiguous for a third milestone.
 
 ### X3 — KPI view, rebuilt
-**Why here:** the old KPI tab was erased 2026-09-10 (it printed revenue in plain text). It needs redesigning around roles, which only exist after X0. Also depends on the enrollment reconciliation in Track B — rebuilding a revenue view on numbers known to be wrong would bake in the error.
+**Why here:** the old KPI tab was erased 2026-09-10 (it printed revenue in plain text). It needs redesigning around roles, which only exist after X0.
 
+**Ordering with B2 reversed 2026-09-10 (Jas).** B2 no longer blocks X3 — it is the other way round. Reconciling enrollment numbers in the abstract means guessing at a gap; it is far easier once a concrete view shows which months are short and by how much. So **X3 builds the view first, and the view is what makes B2 doable.**
+
+This puts a known-incomplete number on screen, which is fine only if the screen says so:
+- The view must **label the Stripe-visible figure as incomplete on its face** — not in a footnote, not in a tooltip. E-transfer and manual invoices bypass Checkout and are invisible to this system.
+- Show the month-by-month shape, since that is what makes the gap diagnosable — a month that looks right and a month that looks half-missing tell different stories.
+- **Never present the Stripe figure as total enrollments or total revenue** anywhere in the UI, in Slack output, or in agent rationales. It is "enrollments we can see," and the naming should say so.
+- Once B2 resolves, revisit whether the manual figures can be entered or imported so the view becomes complete rather than merely honest.
+
+Other X3 scope:
 - Redesign from scratch; the backend routes `/api/kpis` and `/api/kpis/monthly` still exist untouched.
 - Revenue visible to `owner` only. If marketing needs enrollment counts without dollar figures, that is a separate endpoint — never a filtered view of the revenue one.
-- Fold in the reconciliation result from Track B so enrollment figures are honest about what Stripe can and cannot see.
 - KPI 3 ("4 videos/week hypothesis-tagged") was previously blocked on the dropped taxonomy work. It is now measurable off X1's output instead — re-derive the metric from `content_analysis` coverage rather than the old CSV.
 
 ### X4 — TikTok Business API migration
@@ -90,7 +100,7 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - New agent task: read `content_analysis` + performance + X2's derived metrics, output what works and what doesn't, with the evidence for each claim.
 - Auto-suggest `hypothesis` tags from Eknoor's descriptions.
 - **Idea map edges** (carried over from the M4.5 open list): draw suggestion → source videos → outcome, so the map shows whether an idea actually worked. Belongs here — the data to draw those edges is exactly what this milestone produces.
-- **Standing caution:** 221 videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one.
+- **Standing caution:** 221 videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one. If B2 is still unresolved, that caution is stronger, not weaker: the enrollment denominator itself is incomplete.
 
 ### X7 — Sales analyst (was M6)
 **Deliberately last of the build work.** Marketing has real data flowing and a person ready to use it; sales has neither yet.
@@ -103,20 +113,30 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
 
 ### X9 — Instagram + Facebook
-**Blocked externally, not by us. See Track B.**
+**Blocked externally by B1, not by us.**
 
 - Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
-- Slots in whenever the blocker clears, at whatever point that happens to be.
+- Slots in whenever B1 clears, at whatever point that happens to be. If B1 resolves early, X9 can jump the queue — nothing in X2–X8 depends on it either way.
 
 ---
 
 ## Track B — not code, needs a person
 
-These run in parallel and are not blocked by any milestone above.
+**B1 — Instagram access. START NOW, in parallel with X0.** Blocks X9.
 
-**B1 — Instagram access (blocks X9).** The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped. **Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on.
+The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended).
 
-**B2 — Enrollment reconciliation (blocks X3).** Stripe shows 15–33 completed enrollments/month against a stated 60/month baseline. E-transfer and manual invoices bypass Checkout entirely, so they are invisible to every number this system produces. Reconcile before the day-90 review, and before rebuilding any KPI view on top of the gap.
+**Why start now rather than when X9 comes up:** this is the one item where the timeline belongs to somebody else. A contractor may take days or weeks to respond, or may have left, or may want something in return. Making the ask early costs nothing and means X9 is unblocked whenever the code gets there, instead of the code waiting on a conversation that hadn't started.
+
+**Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on. Worth resolving on those grounds alone, even if Instagram analytics never happened.
+
+**B2 — Enrollment reconciliation. Do this DURING or AFTER X3, not before.** Reordered 2026-09-10 (Jas): reconciling against a number you can't see is guesswork; X3's month-by-month view makes the gap concrete and points at which months to investigate.
+
+Stripe shows 15–33 completed enrollments/month against a stated 60/month baseline. E-transfer and manual invoices bypass Checkout entirely, so they are invisible to every number this system produces.
+
+- **Still true before the day-90 review**, regardless of X3's timing — if the review lands first, the gap has to be spoken to whether or not the view exists yet.
+- Until it resolves, every enrollment and revenue figure in this system is a floor, not a total. X3 is required to say so on screen.
+- Resolution likely means deciding how manual payments get recorded going forward, not just counting the past ones.
 
 **B3 — Hypothesis taxonomy v2 — DROPPED 2026-09-10 (Jas).** Superseded by X1, which produces a richer version of the same thing from Eknoor's per-video descriptions. Consequences, so nothing is silently lost:
 - `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only **until X1 ships**. Nothing else will fill them.
@@ -136,6 +156,7 @@ These run in parallel and are not blocked by any milestone above.
 - The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
 - Access is via portal Google login only. No standalone dash password after X0.
 - Hypothesis tagging comes from X1's structured descriptions, not a separate taxonomy exercise.
+- Incomplete figures may be shown, but never unlabelled — see X3 and B2.
 
 ## Data reality (verified against repo + DB, 2026-09-09)
 
@@ -145,6 +166,7 @@ These run in parallel and are not blocked by any milestone above.
 - TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 fixes it. `sync.ts` has a locked rule against deriving them meanwhile.
 - **No ad data anywhere** until X1's manual entry.
 - **No enrollment attribution.** Stripe enrollments carry no link to a video, ever.
+- **Stripe enrollment counts are a floor, not a total** — see B2.
 - `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**.
 - `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
 - KPI tab content was erased 2026-09-10 pending X3. Backend routes untouched.
