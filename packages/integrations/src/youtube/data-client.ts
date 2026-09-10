@@ -42,6 +42,9 @@ const VideosResponseSchema = z.object({
         title: z.string(),
         publishedAt: z.string(),
       }),
+      contentDetails: z.object({
+        duration: z.string(), // ISO 8601, e.g. "PT45S", "PT3M2S"
+      }),
       statistics: z.object({
         viewCount: z.string().optional(),
         likeCount: z.string().optional(),
@@ -55,6 +58,7 @@ export interface YouTubeVideo {
   videoId: string;
   title: string;
   publishedAt: string;
+  durationSeconds: number;
   views: number;
   likes: number;
   comments: number;
@@ -68,6 +72,20 @@ export interface YouTubeChannelSnapshot {
 
 const toInt = (value: string | undefined): number =>
   value === undefined ? 0 : Number.parseInt(value, 10);
+
+/**
+ * Parses an ISO 8601 duration ("PT1H2M3S") to whole seconds. YouTube's
+ * contentDetails.duration never includes fractional seconds, so this is
+ * exact, not an estimate.
+ */
+export function parseIso8601Duration(duration: string): number {
+  const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
+  if (match === null) return 0;
+  const hours = Number.parseInt(match[1] ?? '0', 10);
+  const minutes = Number.parseInt(match[2] ?? '0', 10);
+  const seconds = Number.parseInt(match[3] ?? '0', 10);
+  return hours * 3600 + minutes * 60 + seconds;
+}
 
 /** Public data only — API key, no OAuth. Retention comes from the Analytics client (Step 12). */
 export class YouTubeDataClient {
@@ -109,7 +127,7 @@ export class YouTubeDataClient {
       const batch = videoIds.slice(i, i + 50);
       const videosRaw = await requestJson<unknown>(VIDEOS_URL, {
         query: {
-          part: 'snippet,statistics',
+          part: 'snippet,contentDetails,statistics',
           id: batch.join(','),
           key: this.config.apiKey,
         },
@@ -120,6 +138,7 @@ export class YouTubeDataClient {
           videoId: item.id,
           title: item.snippet.title,
           publishedAt: item.snippet.publishedAt,
+          durationSeconds: parseIso8601Duration(item.contentDetails.duration),
           views: toInt(item.statistics.viewCount),
           likes: toInt(item.statistics.likeCount),
           comments: toInt(item.statistics.commentCount),
