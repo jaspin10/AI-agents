@@ -56,13 +56,16 @@ X0 is done — see below. Not built: X1 onward.
 - Marketing-role behaviour verified pre-ship by direct API test (not a live Eknoor click-through): a minted `marketing` token got `403` on `/api/kpis`, `/api/kpis/monthly`, `/api/logs`, and `200` on `/api/suggestions`, `/api/me`, `/api/content-performance`. A live click-through as Eknoor herself is still worth doing when convenient, but the server-side role gate — not the dash's panel list — is what actually protects the routes.
 
 ### X1 — Eknoor inputs content analysis
+**Confirmed 2026-09-10:** Supabase MCP has full read/write access to the analyst project (`kmgltqfwtyhswqxjicab`), verified with a live `execute_sql` call — not just the portal project. Not a blocker for X1.
+
 **Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
 
 **X1 is also the replacement for the old hypothesis-taxonomy effort** (dropped 2026-09-10, see Track B history). `content.hypothesis` gets populated from Eknoor's structured descriptions rather than from a separate hand-built taxonomy — so the mapping onto `content.hook` / `.format` / `.hypothesis` below is not a nice-to-have, it is now the only path by which those columns ever get filled. Treat it as required scope, not an optional extra.
 
-- New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), analysed_by, analysed_at.
+- New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), idea_source, analysed_by, analysed_at.
 - `/analysis` page in `apps/dash`: every video in `content` with title, posted date, latest views/likes/comments/shares, watch time where present, and a per-video form.
 - **REQUIRED — build platform-agnostic.** Do NOT hardcode `platform IN ('tiktok','youtube')` anywhere in the query, the UI, the filters, or the schema. The page lists whatever platforms exist in `content`, and the platform filter is derived from the distinct values actually present. When X9 lands and Instagram rows start arriving from the nightly sync, they must appear on this page with **zero changes to X1 code**. Same for any future platform. Missing metrics per platform are already handled by the "show only where present" rule below — that is the same mechanism.
+- **`idea_source` field, locked 2026-09-10 (Jas):** who had the *idea* for the video — not who filmed it, edited it, or posted it. Known values so far: AI agent, Jas, Eknoor, Loop Studio (marketing contractor), Harman, Manjot, Other — and this list will keep growing as testing continues, so it must not be a rigid CHECK-constraint enum; adding a new source later should need no schema migration and no deploy. Loop Studio and Manjot are content-idea sources only — they are not portal roles, do not touch `profiles.role` or `access_status` for them. Existing/legacy videos get `idea_source = NULL` and stay NULL — there is no backfill. Only videos analysed from X1 onward get it filled in; NULL on an old row is expected, not missing data.
 - `/api/analysis/*` read + write routes, authenticated by the X0 session cookie — never by a baked-in `VITE_` token.
 - **Required:** map the structured fields onto `content.hook` / `.format` / `.hypothesis`, so the existing suggestions agent benefits and the tagging gap closes.
 - Show per-platform metrics only where present; never derive or fill a missing one.
@@ -71,7 +74,7 @@ X0 is done — see below. Not built: X1 onward.
 **Sequencing note (Jas, 2026-09-10):** Jas would prefer Meta access (B1) resolved before Eknoor starts tagging, so she covers all platforms in one pass rather than revisiting videos later. Recorded as a preference, with the trade-off stated plainly so the choice stays deliberate:
 - B1's timeline belongs to a third party and may be days, weeks, or never. Gating X1 on it means Eknoor has nothing to do for an unknown period.
 - Even after B1 clears, Instagram data does not appear until X9 is **built** — B1 is permission, X9 is the integration. Meta app review may add further delay.
-- Tagging is per-video and incremental, so nothing is wasted by starting with the 221 TikTok/YouTube videos already in hand. Instagram videos would simply join the same list later.
+- Tagging is per-video and incremental, so nothing is wasted by starting with the TikTok/YouTube videos already in hand (count moves daily — see Data reality note below, never verify against a specific number). Instagram videos would simply join the same list later.
 - The platform-agnostic requirement above is what makes waiting unnecessary — it exists precisely so the page doesn't need rework when Instagram arrives.
 - **If B1 has not cleared by the time X0 finishes, start X1 anyway.** X0 is done, so this default is now live: start X1.
 
@@ -123,7 +126,7 @@ Other X3 scope:
 - New agent task: read `content_analysis` + performance + X2's derived metrics, output what works and what doesn't, with the evidence for each claim.
 - Auto-suggest `hypothesis` tags from Eknoor's descriptions.
 - **Idea map edges** (carried over from the M4.5 open list): draw suggestion → source videos → outcome, so the map shows whether an idea actually worked. Belongs here — the data to draw those edges is exactly what this milestone produces.
-- **Standing caution:** 221 videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one. If B2 is still unresolved, that caution is stronger, not weaker: the enrollment denominator itself is incomplete.
+- **Standing caution:** a couple hundred videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one. If B2 is still unresolved, that caution is stronger, not weaker: the enrollment denominator itself is incomplete.
 
 ### X7 — Sales analyst (was M6)
 **Deliberately last of the build work.** Marketing has real data flowing and a person ready to use it; sales has neither yet.
@@ -183,7 +186,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 
 ## Data reality (verified against repo + DB, 2026-09-09)
 
-- `content`: platform, platformVideoId, title, `hook` (null), `format` (null), `hypothesis` (null — CSV header-only), postedAt. 155 TikTok + 66 YouTube = 221 videos.
+- `content`: platform, platformVideoId, title, `hook` (null), `format` (null), `hypothesis` (null — CSV header-only), postedAt. 156 TikTok + 66 YouTube = 222 videos as of 2026-09-10 — **Jas adds videos daily, so this count is a stale snapshot the moment it's written. Never treat a count in this doc as a fact to verify code against.**
 - `performance`: **daily snapshot per video** — views, likes, comments, shares, saves, avgWatchTimeSeconds, retentionPct, followersAtCapture. Snapshots accumulate nightly, so growth over time is derivable.
 - YouTube: watch time + retention present. Shares always 0 (Data API doesn't expose them).
 - TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 fixes it. `sync.ts` has a locked rule against deriving them meanwhile.
