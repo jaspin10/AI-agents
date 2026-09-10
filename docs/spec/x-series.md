@@ -16,6 +16,8 @@ Not built: everything below.
 
 The dashboard currently sits behind one interim HTTP Basic password with no role distinction. **Only Jas can use it.** Nobody else can be given access until X0 ships — that is why X0 is first.
 
+**Build order confirmed by Jas 2026-09-10: X0 first.**
+
 ---
 
 ## Track A — code, in order
@@ -28,6 +30,8 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role. Replaces the Basic Auth middleware.
 - Shared signing secret in both Railway and the portal's Edge Function secrets.
 - **Locked:** no standalone dash login, no direct Railway URL access ever. Portal is the only door.
+- **Do not remove `DASH_PASSWORD` until the new path is verified working end to end** — it's the fallback if the handoff breaks.
+- While in that service's env, resolve B4 below (report key TYPE only, never the key itself).
 - Design detail in `portal-integration.md`'s Auth section.
 
 **Role permissions (locked, mechanism-independent):**
@@ -38,10 +42,12 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 ### X1 — Eknoor inputs content analysis
 **Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
 
+**X1 is also the replacement for the old hypothesis-taxonomy effort** (dropped 2026-09-10, see Track B history). `content.hypothesis` gets populated from Eknoor's structured descriptions rather than from a separate hand-built taxonomy — so the mapping onto `content.hook` / `.format` / `.hypothesis` below is not a nice-to-have, it is now the only path by which those columns ever get filled. Treat it as required scope, not an optional extra.
+
 - New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), analysed_by, analysed_at.
 - `/analysis` page in `apps/dash`: every TikTok + YouTube video with title, posted date, latest views/likes/comments/shares, YouTube watch time where present, and a per-video form.
 - `/api/analysis/*` read + write routes, authenticated by whatever session X0 establishes — never by a baked-in `VITE_` token.
-- Map the structured fields onto `content.hook` / `.format` / `.hypothesis` where they fit, so the existing suggestions agent benefits immediately.
+- **Required:** map the structured fields onto `content.hook` / `.format` / `.hypothesis`, so the existing suggestions agent benefits and the tagging gap closes.
 - **Ad data is manual entry here.** A true paid/organic split needs X4.
 
 ### X2 — Derived metrics
@@ -60,6 +66,7 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - Redesign from scratch; the backend routes `/api/kpis` and `/api/kpis/monthly` still exist untouched.
 - Revenue visible to `owner` only. If marketing needs enrollment counts without dollar figures, that is a separate endpoint — never a filtered view of the revenue one.
 - Fold in the reconciliation result from Track B so enrollment figures are honest about what Stripe can and cannot see.
+- KPI 3 ("4 videos/week hypothesis-tagged") was previously blocked on the dropped taxonomy work. It is now measurable off X1's output instead — re-derive the metric from `content_analysis` coverage rather than the old CSV.
 
 ### X4 — TikTok Business API migration
 **Why after X2:** unlocks real TikTok watch time, which every metric in X2 currently has to skip. Placed here rather than earlier because it needs external approval that can't be rushed.
@@ -105,15 +112,19 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 
 ## Track B — not code, needs a person
 
-These run in parallel and are not blocked by any milestone above. Two of them block milestones.
+These run in parallel and are not blocked by any milestone above.
 
 **B1 — Instagram access (blocks X9).** The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped. **Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on.
 
 **B2 — Enrollment reconciliation (blocks X3).** Stripe shows 15–33 completed enrollments/month against a stated 60/month baseline. E-transfer and manual invoices bypass Checkout entirely, so they are invisible to every number this system produces. Reconcile before the day-90 review, and before rebuilding any KPI view on top of the gap.
 
-**B3 — Hypothesis taxonomy v2.** A team member is open-coding the back-catalogue. Until it's consolidated, `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only. X1 partially replaces the need for this — Eknoor's structured descriptions are a richer version of the same idea — so **check whether B3 is still worth finishing once X1 is live**, rather than doing both.
+**B3 — Hypothesis taxonomy v2 — DROPPED 2026-09-10 (Jas).** Superseded by X1, which produces a richer version of the same thing from Eknoor's per-video descriptions. Consequences, so nothing is silently lost:
+- `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only **until X1 ships**. Nothing else will fill them.
+- The suggestions agent groups by hypothesis tag — until X1, the Idea map stays mostly "UNTAGGED". Expected, not a bug.
+- If the back-catalogue open-coding was already partly done by a team member, that work is now unused. Worth telling them before they spend more time on it.
+- **Do not restart a separate taxonomy effort.** If X1 turns out not to fill this need, reopen this decision explicitly rather than quietly running both.
 
-**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. Check at the next convenient moment.
+**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. **Folded into X0**, which already touches that service's env.
 
 ---
 
@@ -124,6 +135,7 @@ These run in parallel and are not blocked by any milestone above. Two of them bl
 - Same video on both platforms must be pairable for cross-platform comparison.
 - The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
 - Access is via portal Google login only. No standalone dash password after X0.
+- Hypothesis tagging comes from X1's structured descriptions, not a separate taxonomy exercise.
 
 ## Data reality (verified against repo + DB, 2026-09-09)
 
@@ -141,3 +153,4 @@ These run in parallel and are not blocked by any milestone above. Two of them bl
 - Photos, carousels, stories
 - Enrollment attribution at the video level — no data source exists
 - Rebuilding the dash natively inside the portal (Option B) — that stays an M7-era idea, not a plan
+- A standalone hypothesis taxonomy exercise — dropped, see B3
