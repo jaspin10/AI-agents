@@ -3,6 +3,8 @@ import {
   getAnalysis,
   lookupRef,
   saveAnalysis,
+  type AdRun,
+  type AdRunBody,
   type AnalysisBody,
   type AnalysisPayload,
   type AnalysisVideo,
@@ -20,9 +22,10 @@ import {
  *
  * Follow-up locked 2026-09-10: a video can pair with more than one other
  * video at once (its YouTube twin AND its Instagram twin, once X9 lands),
- * and ad status is tri-state — Yes / No / Don't know — since ad status is
- * independent per video (one side of a pair can be boosted while the other
- * isn't) and Eknoor shouldn't have to guess before she's checked Ads Manager.
+ * ad status is tri-state — Yes / No / Don't know — since ad status is
+ * independent per video, and a video can have more than one ad run over its
+ * life (re-boosted at different times) — each run has its own dates/spend,
+ * with no auto-summed total (that's computed at report time, X5).
  */
 
 const FORMAT_OPTIONS = ['Talking head', 'Skit', 'Screen/text overlay', 'Voiceover B-roll', 'Duet/Stitch', 'Live clip'];
@@ -31,6 +34,26 @@ const OTHER = 'Other';
 
 type AnalysedFilter = 'all' | 'todo' | 'done';
 type TriState = 'yes' | 'no' | 'unknown';
+
+interface AdRunDraft {
+  key: string;
+  startDate: string;
+  endDate: string;
+  spendDollars: string;
+}
+
+function newDraft(): AdRunDraft {
+  return { key: Math.random().toString(36).slice(2), startDate: '', endDate: '', spendDollars: '' };
+}
+
+function draftsFromRuns(runs: AdRun[]): AdRunDraft[] {
+  return runs.map((r) => ({
+    key: r.id,
+    startDate: r.startDate ?? '',
+    endDate: r.endDate ?? '',
+    spendDollars: r.spendCents === null ? '' : (r.spendCents / 100).toFixed(2),
+  }));
+}
 
 interface FormState {
   description: string;
@@ -42,9 +65,6 @@ interface FormState {
   ctaChoice: string;
   ctaOther: string;
   adBoosted: TriState;
-  adStartDate: string;
-  adEndDate: string;
-  adSpendDollars: string;
   ideaSource: string;
 }
 
@@ -67,19 +87,27 @@ function toForm(v: AnalysisVideo): FormState {
     ctaChoice: c.choice,
     ctaOther: c.other,
     adBoosted: a?.adBoosted === true ? 'yes' : a?.adBoosted === false ? 'no' : 'unknown',
-    adStartDate: a?.adStartDate ?? '',
-    adEndDate: a?.adEndDate ?? '',
-    adSpendDollars: a?.adSpendCents === null || a?.adSpendCents === undefined ? '' : (a.adSpendCents / 100).toFixed(2),
     ideaSource: a?.ideaSource ?? '',
   };
 }
 
-function toBody(f: FormState, refs: PairedVideoRef[]): AnalysisBody {
+function toBody(f: FormState, refs: PairedVideoRef[], adRunDrafts: AdRunDraft[]): AnalysisBody {
   const nz = (s: string): string | null => (s.trim() === '' ? null : s.trim());
   const format = f.formatChoice === OTHER ? nz(f.formatOther) : nz(f.formatChoice);
   const cta = f.ctaChoice === OTHER ? nz(f.ctaOther) : nz(f.ctaChoice);
-  const spend = f.adSpendDollars.trim() === '' ? null : Math.round(Number(f.adSpendDollars) * 100);
   const adBoosted: boolean | null = f.adBoosted === 'yes' ? true : f.adBoosted === 'no' ? false : null;
+  const adRuns: AdRunBody[] = adBoosted === true
+    ? adRunDrafts
+        .filter((d) => d.startDate.trim() !== '' || d.endDate.trim() !== '' || d.spendDollars.trim() !== '')
+        .map((d) => {
+          const spend = d.spendDollars.trim() === '' ? null : Math.round(Number(d.spendDollars) * 100);
+          return {
+            startDate: nz(d.startDate),
+            endDate: nz(d.endDate),
+            spendCents: spend !== null && Number.isFinite(spend) ? spend : null,
+          };
+        })
+    : [];
   return {
     description: nz(f.description),
     hookText: nz(f.hookText),
@@ -88,9 +116,7 @@ function toBody(f: FormState, refs: PairedVideoRef[]): AnalysisBody {
     hasCta: f.hasCta === '' ? null : f.hasCta === 'yes',
     ctaType: f.hasCta === 'yes' ? cta : null,
     adBoosted,
-    adStartDate: adBoosted === true ? nz(f.adStartDate) : null,
-    adEndDate: adBoosted === true ? nz(f.adEndDate) : null,
-    adSpendCents: adBoosted === true && spend !== null && Number.isFinite(spend) ? spend : null,
+    adRuns,
     crossPlatformVideoIds: refs.map((r) => r.platformVideoId),
     ideaSource: nz(f.ideaSource),
   };
@@ -100,7 +126,7 @@ const ERROR_TEXT: Record<string, string> = {
   ref_not_found: 'No video with that ID exists in the data yet.',
   ref_is_self: 'That is this video\u2019s own ID.',
   ref_same_platform: 'The paired video must be on a different platform.',
-  ad_end_before_start: 'Ad end date is before the start date.',
+  ad_end_before_start: 'One of the ad runs has an end date before its start date.',
   invalid_body: 'Something in the form is not valid — check the dates and spend.',
 };
 
@@ -234,6 +260,10 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
   const [refs, setRefs] = useState<PairedVideoRef[]>(video.crossPlatformRefVideos);
   const [refInput, setRefInput] = useState('');
   const [refPreview, setRefPreview] = useState<RefEcho | null | 'missing'>(null);
+  const [adRuns, setAdRuns] = useState<AdRunDraft[]>(() => {
+    const drafts = draftsFromRuns(video.adRuns);
+    return drafts.length > 0 ? drafts : [];
+  });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -258,6 +288,11 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
   };
   const removeRef = (id: string) => setRefs((prev) => prev.filter((r) => r.id !== id));
 
+  const setAdRun = (key: string, patch: Partial<AdRunDraft>) =>
+    setAdRuns((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const addAdRun = () => setAdRuns((prev) => [...prev, newDraft()]);
+  const removeAdRun = (key: string) => setAdRuns((prev) => prev.filter((r) => r.key !== key));
+
   const m = video.metrics;
   const metric = (label: string, value: string | null) =>
     value === null ? null : <span key={label} style={{ marginRight: 14 }}><span className="dim">{label}</span> {value}</span>;
@@ -266,9 +301,10 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
     setSaving(true);
     setMsg(null);
     try {
-      const result = await saveAnalysis(video.id, toBody(f, refs));
-      onSaved({ ...video, analysis: result.analysis, crossPlatformRefVideos: result.refs });
+      const result = await saveAnalysis(video.id, toBody(f, refs, adRuns));
+      onSaved({ ...video, analysis: result.analysis, crossPlatformRefVideos: result.refs, adRuns: result.adRuns });
       setRefs(result.refs);
+      setAdRuns(draftsFromRuns(result.adRuns));
       setMsg({ text: 'Saved.', ok: true });
     } catch (e) {
       const code = e instanceof Error ? e.message : 'error';
@@ -379,10 +415,31 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         <div className="hint">A video can be boosted on one platform and not on its twin — this only covers {video.platform} for this video. No paid/organic split until X4.</div>
       </Field>
       {f.adBoosted === 'yes' && (
-        <div className="row3">
-          <Field label="Ad start"><input type="date" className="input" value={f.adStartDate} onChange={(e) => set('adStartDate', e.target.value)} /></Field>
-          <Field label="Ad end"><input type="date" className="input" value={f.adEndDate} onChange={(e) => set('adEndDate', e.target.value)} /></Field>
-          <Field label="Spend ($)"><input type="number" min="0" step="0.01" className="input" value={f.adSpendDollars} onChange={(e) => set('adSpendDollars', e.target.value)} placeholder="0.00" /></Field>
+        <div style={{ marginBottom: 14 }}>
+          <div className="field-label" style={{ marginBottom: 6 }}>
+            Ad runs — one line per campaign (a video can be boosted more than once over its life)
+          </div>
+          {adRuns.map((r, i) => (
+            <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+              <label>
+                <span className="hint" style={{ display: 'block', marginBottom: 4 }}>{i === 0 ? 'Start' : ''}</span>
+                <input type="date" className="input" value={r.startDate} onChange={(e) => setAdRun(r.key, { startDate: e.target.value })} />
+              </label>
+              <label>
+                <span className="hint" style={{ display: 'block', marginBottom: 4 }}>{i === 0 ? 'End' : ''}</span>
+                <input type="date" className="input" value={r.endDate} onChange={(e) => setAdRun(r.key, { endDate: e.target.value })} />
+              </label>
+              <label>
+                <span className="hint" style={{ display: 'block', marginBottom: 4 }}>{i === 0 ? 'Spend ($)' : ''}</span>
+                <input type="number" min="0" step="0.01" className="input" placeholder="0.00" value={r.spendDollars} onChange={(e) => setAdRun(r.key, { spendDollars: e.target.value })} />
+              </label>
+              <button type="button" className="btn ghost" onClick={() => removeAdRun(r.key)} aria-label="Remove run">×</button>
+            </div>
+          ))}
+          <button type="button" className="btn" onClick={addAdRun}>
+            {adRuns.length === 0 ? '+ Add ad run' : '+ Add another run'}
+          </button>
+          <div className="hint" style={{ marginTop: 6 }}>Each row is its own campaign — spend is per run, not totalled here.</div>
         </div>
       )}
 
