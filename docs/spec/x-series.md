@@ -27,14 +27,38 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 ### X0 — Access: portal Google login → dash
 **Why first:** Eknoor cannot be given the dashboard at all until this exists. Every other milestone is work she can't reach. Also removes a static password currently guarding revenue data on a public URL.
 
-- Portal repo: a Supabase Edge Function that checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. **New infra — nothing is deployed to that project's Edge Functions today.**
-- Portal repo: `src/pages/Analytics.jsx` (currently a placeholder) calls that function, then opens `DASH_URL?token=…` in a new tab. This is integration Step 3.
+**Status 2026-09-10: BUILT, in PR, NOT yet verified end to end.** Portal PR and analyst PR are open; secrets not yet set; `DASH_PASSWORD` still in place. See "Ship checklist" below.
+
+- Portal repo: Supabase Edge Function `dash-token` checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. ⚠ Correction to the 2026-09-10 draft: this is **not** new infra — the portal project already runs three Edge Functions (`smart-handler`, `sync-recordings`, `sync-enrollments`), deployed with `supabase functions deploy <name>`. `dash-token` is a fourth on the same path.
+- Portal repo: `src/pages/Analytics.jsx` calls that function, then opens the returned handoff URL in a new tab. This is integration Step 3.
 - Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role. Replaces the Basic Auth middleware.
-- Shared signing secret in both Railway and the portal's Edge Function secrets.
+- Shared signing secret `DASH_TOKEN_SECRET` (32+ chars, identical) in both Railway `analyst-dash` and the portal's Edge Function secrets.
 - **Locked:** no standalone dash login, no direct Railway URL access ever. Portal is the only door.
 - **Do not remove `DASH_PASSWORD` until the new path is verified working end to end** — it's the fallback if the handoff breaks.
 - While in that service's env, resolve B4 below (report key TYPE only, never the key itself).
 - Design detail in `portal-integration.md`'s Auth section.
+
+**Sub-decisions locked 2026-09-10 (Jas):**
+- Handoff token: 60 seconds, single use (`jti` burned on first use), HS256, claims `iss=fwj-portal aud=analyst-dash typ=handoff sub email role jti iat exp`. Only `owner` and `marketing` are ever minted one — every other role is refused by the Edge Function with `no_access` before anything is signed.
+- `apps/api` exchanges it at `GET /auth/handoff?token=…` for its own httpOnly `dash_session` cookie (**12 hours**, SameSite=Lax, Secure on Railway). Nobody is re-verified per click; when the cookie dies you click Analytics in the portal again.
+- Dash URL opened with no token and no cookie → **302 straight to the portal login** (`PORTAL_URL`, default `https://portal.frenchwithjas.ca/analytics`). No message, no login form. `/api/*` without a session answers `401` JSON; the dash reloads `/` on 401 and the server bounces it.
+- Transition-only fallback: `GET /auth/basic` is the one route that issues a Basic challenge. It accepts `DASH_USER`/`DASH_PASSWORD`, issues the same 12h cookie as owner, and ceases to exist the moment `DASH_PASSWORD` is unset. The public root never challenges.
+- Local dev: `DASH_DEV_ROLE=owner|marketing` in `.env` stands in for the cookie. Ignored whenever `RAILWAY_ENVIRONMENT` is set — it cannot become a production door.
+- The old `API_WRITE_TOKEN` / `VITE_API_WRITE_TOKEN` bearer on the suggestion-status write is gone; that route is session + role (owner, marketing).
+- New `GET /api/me` → `{ role, email }` so the dash draws only the panels the caller can open.
+
+**Route → role (enforced in `apps/api`, mirrored in `apps/dash/App.tsx`):**
+- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`
+- owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/logs`
+
+**Ship checklist (in this order):**
+1. Merge portal PR → Vercel deploys the new `Analytics.jsx`.
+2. Set Supabase secrets on the portal project: `DASH_TOKEN_SECRET`, `DASH_URL=https://analyst-dash-production.up.railway.app`.
+3. `supabase functions deploy dash-token` (Verify JWT on, the default).
+4. Set Railway `analyst-dash` vars: `DASH_TOKEN_SECRET` (same value), `PORTAL_URL=https://portal.frenchwithjas.ca/analytics`. Read the first three characters of `SUPABASE_SERVICE_ROLE_KEY` while there → B4.
+5. Merge analyst PR → Railway deploys. Until step 4 is done, the handoff route bounces to the portal and `/auth/basic` still works.
+6. Verify: owner click-through; Eknoor click-through sees Suggestions / Idea map / Performance only; `/api/kpis` as marketing → 403; bare Railway URL → portal.
+7. Unset `DASH_PASSWORD` and `DASH_USER` on Railway. Then a follow-up PR deletes the `/auth/basic` block.
 
 **Role permissions (locked, mechanism-independent):**
 - `owner` — everything.
@@ -155,7 +179,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - If the back-catalogue open-coding was already partly done by a team member, that work is now unused. Worth telling them before they spend more time on it.
 - **Do not restart a separate taxonomy effort.** If X1 turns out not to fill this need, reopen this decision explicitly rather than quietly running both.
 
-**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. **Folded into X0**, which already touches that service's env.
+**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. **Folded into X0**, which already touches that service's env. 2026-09-10: still unverified — Railway's MCP hides variable values, and the analyst Supabase project still has its legacy keys enabled, so neither side settles it. Jas reads the first three characters of `SUPABASE_SERVICE_ROLE_KEY` in the Railway Variables tab during X0 step 4 and records the answer here.
 
 ---
 
@@ -178,7 +202,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - **No ad data anywhere** until X1's manual entry.
 - **No enrollment attribution.** Stripe enrollments carry no link to a video, ever.
 - **Stripe enrollment counts are a floor, not a total** — see B2.
-- `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**.
+- `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**. As of X0 the dash no longer reads it at all — writes go through the session cookie.
 - `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
 - KPI tab content was erased 2026-09-10 pending X3. Backend routes untouched.
 

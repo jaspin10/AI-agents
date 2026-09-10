@@ -19,22 +19,25 @@ Live as of 2026-09-09: constraint v4 applied, Eknoor Sadhra (`www.eknooor919@gma
 
 **How it works:**
 1. Person is logged into the portal via Google (existing flow, unchanged).
-2. Clicking the Analytics tab calls a **Supabase Edge Function** in the portal's project (new infra — nothing is deployed there today). The function checks the caller's real portal session — this can't be faked, it's Supabase's own auth check — looks up their `profiles.role`, and mints a short-lived signed token carrying that role.
-3. Portal opens `DASH_URL?token=…` in a new tab.
-4. `apps/api` on the dash verifies the token's signature against a shared secret and reads the role claim. **The dash never queries the portal's database directly** — it only trusts a signed note, so the two Supabase projects stay genuinely separate, in the spirit of Option A.
-5. `apps/api` gates every route by that role.
-6. HTTP Basic (`DASH_USER` / `DASH_PASSWORD`) is removed once this ships.
+2. Clicking the Analytics tab calls the **`dash-token` Supabase Edge Function** in the portal's project. (Correction to the first draft: this is a fourth function beside `smart-handler`, `sync-recordings` and `sync-enrollments`, deployed the same way — not new infra.) The function checks the caller's real portal session — `auth.getUser` on the bearer, which can't be faked — looks up their `profiles.role`, and mints a short-lived signed token carrying that role. Only `owner` and `marketing` are minted one; every other role gets `403 no_access` and no token exists.
+3. Portal opens the returned URL, `DASH_URL/auth/handoff?token=…`, in a new tab.
+4. `apps/api` on the dash verifies the token's signature against a shared secret, checks the claims, burns the `jti`, and sets its own httpOnly session cookie. **The dash never queries the portal's database directly** — it only trusts a signed note, so the two Supabase projects stay genuinely separate, in the spirit of Option A.
+5. `apps/api` gates every route by the role in that cookie.
+6. HTTP Basic (`DASH_USER` / `DASH_PASSWORD`) is removed once this is verified end to end.
 
 **Why an Edge Function, not the dash reading the portal's DB directly:** keeps the signing secret server-side (never shipped to a browser — the exact mistake `VITE_API_WRITE_TOKEN` warns about), and avoids handing the analyst app a credential into a database that was deliberately kept separate.
 
-**New pieces needed (none exist yet):**
-- Portal repo: the Edge Function. Plus `src/pages/Analytics.jsx` changes from a placeholder to "call the function, then open the URL with the token."
-- Analyst repo (`apps/api`): token-verification middleware replacing Basic Auth.
-- A shared signing secret, in both the portal's Edge Function secrets and Railway.
+**Pieces (built 2026-09-10, in PR):**
+- Portal repo: `supabase/functions/dash-token/index.ts`. Plus `src/pages/Analytics.jsx`, now "call the function, open the URL in a new tab" (tab is opened synchronously in the click so popup blockers allow it, then pointed at the URL once the token arrives).
+- Analyst repo (`apps/api/src/index.ts`): handoff + session-cookie auth replacing Basic Auth; `apps/dash/src/App.tsx` draws panels by role via new `GET /api/me`; `apps/dash/src/api.ts` drops the `VITE_API_WRITE_TOKEN` bearer and bounces to the portal on 401.
+- A shared signing secret `DASH_TOKEN_SECRET`, in both the portal's Edge Function secrets and Railway.
 
-**Open sub-decisions for the build session:**
-- Token lifetime — recommend a short handoff token (~60s, just long enough to survive the redirect) that `apps/api` exchanges for its own session cookie, so the person isn't re-verified on every click inside the dash.
-- Harman (salesman) is out of scope until X7.
+**Sub-decisions — LOCKED 2026-09-10 (Jas):**
+- Handoff token lifetime **60 seconds, single use**. `apps/api` exchanges it for its own cookie so nobody is re-verified per click.
+- Session cookie **12 hours** (`dash_session`, httpOnly, SameSite=Lax, Secure on Railway). When it expires, click Analytics in the portal again.
+- Dash URL with no token and no cookie → **302 to the portal login, no message, no form**. `/api/*` → `401` JSON.
+- Transition only: `GET /auth/basic` accepts the old `DASH_USER`/`DASH_PASSWORD` and issues the same cookie as owner, so Jas has a way in if the handoff breaks. Nothing else on the public surface ever issues a Basic challenge. It is deleted with `DASH_PASSWORD`.
+- Harman (salesman) is out of scope until X7 — the function refuses to mint for him.
 
 ## Integration steps — history
 1. **DONE (2026-09-09)** (portal repo) Role `marketing`: constraint rebuilt to v4, Eknoor's profile flipped. Verified she no longer matches `role='student'`.
@@ -43,5 +46,5 @@ Live as of 2026-09-09: constraint v4 applied, Eknoor Sadhra (`www.eknooor919@gma
 4. **DONE (2026-09-09).** Deployed as ONE Railway service (`apps/api` serves built `apps/dash`), not the two originally planned — `apps/dash` had no production build, used relative-path fetches, and had no CORS story. Live at `https://analyst-dash-production.up.railway.app`. Currently HTTP Basic; replaced by X0.
 5. **Now part of X0.** The original shared-secret plan is replaced by the portal-Google-token design above.
 
-## New env vars when built
-Portal's Supabase project: the Edge Function's signing secret. Railway: the same signing secret, to verify tokens. Portal's client code needs no new secret — it calls its own project's Edge Function, already authenticated.
+## Env vars for X0
+Portal's Supabase project (Edge Function secrets): `DASH_TOKEN_SECRET` (32+ chars), `DASH_URL` (optional; defaults to the Railway service URL). Railway `analyst-dash`: the same `DASH_TOKEN_SECRET`, plus `PORTAL_URL` (optional; defaults to `https://portal.frenchwithjas.ca/analytics`). Portal's client code needs no new secret — it calls its own project's Edge Function, already authenticated. Local `apps/api` dev: `DASH_DEV_ROLE=owner|marketing` in `.env` (ignored on Railway).
