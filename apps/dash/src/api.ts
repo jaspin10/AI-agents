@@ -54,6 +54,22 @@ export async function getJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** JSON write with the same 401/403 handling. Returns the parsed body; throws with the server's error code on 4xx. */
+export async function sendJson<T>(method: 'PUT' | 'POST', path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) bounceToPortal();
+  if (response.status === 403) throw new Error('Your portal role cannot do this.');
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? `${path} → ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
 export function getMe(): Promise<Me> {
   return getJson<Me>('/api/me');
 }
@@ -63,14 +79,7 @@ export async function setSuggestionStatus(
   id: string,
   status: 'posted' | 'skipped'
 ): Promise<void> {
-  const response = await fetch(`/api/suggestions/${id}/status`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-  if (response.status === 401) bounceToPortal();
-  if (response.status === 403) throw new Error('Your portal role cannot change suggestion status.');
-  if (!response.ok) throw new Error(`status update → ${response.status}`);
+  await sendJson<{ ok: true }>('POST', `/api/suggestions/${id}/status`, { status });
 }
 
 export interface ContentRow {
@@ -98,4 +107,81 @@ export interface PerformanceRecord {
     retentionPct: number | null;
     followersAtCapture: number | null;
   };
+}
+
+/* ---------------- X1 — content analysis ---------------- */
+
+export interface ContentAnalysis {
+  contentId: string;
+  description: string | null;
+  hookText: string | null;
+  format: string | null;
+  hasModel: boolean | null;
+  hasCta: boolean | null;
+  ctaType: string | null;
+  adBoosted: boolean;
+  adStartDate: string | null;
+  adEndDate: string | null;
+  adSpendCents: number | null;
+  crossPlatformRef: string | null;
+  ideaSource: string | null;
+  analysedBy: string;
+  analysedAt: string;
+}
+
+export interface AnalysisVideo {
+  id: string;
+  platform: string;
+  platformVideoId: string;
+  title: string | null;
+  postedAt: string;
+  /** Latest snapshot, or null when the sync has not captured this video yet. */
+  metrics: (PerformanceRecord['metrics'] & { capturedDate: string }) | null;
+  analysis: ContentAnalysis | null;
+  crossPlatformRefVideo: { id: string; platform: string; platformVideoId: string; title: string | null } | null;
+}
+
+export interface AnalysisPayload {
+  videos: AnalysisVideo[];
+  /** Seeded chips ∪ every idea_source already saved. */
+  ideaSources: string[];
+}
+
+export interface AnalysisBody {
+  description: string | null;
+  hookText: string | null;
+  format: string | null;
+  hasModel: boolean | null;
+  hasCta: boolean | null;
+  ctaType: string | null;
+  adBoosted: boolean;
+  adStartDate: string | null;
+  adEndDate: string | null;
+  adSpendCents: number | null;
+  crossPlatformVideoId: string | null;
+  ideaSource: string | null;
+}
+
+export function getAnalysis(): Promise<AnalysisPayload> {
+  return getJson<AnalysisPayload>('/api/analysis');
+}
+
+export interface RefEcho {
+  id: string;
+  platform: string;
+  platformVideoId: string;
+  title: string | null;
+  postedAt: string;
+}
+
+export async function lookupRef(platformVideoId: string): Promise<RefEcho | null> {
+  const response = await fetch(`/api/analysis/ref/${encodeURIComponent(platformVideoId)}`);
+  if (response.status === 401) bounceToPortal();
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`ref lookup → ${response.status}`);
+  return (await response.json()) as RefEcho;
+}
+
+export function saveAnalysis(contentId: string, body: AnalysisBody): Promise<{ ok: true; analysis: ContentAnalysis }> {
+  return sendJson('PUT', `/api/analysis/${contentId}`, body);
 }
