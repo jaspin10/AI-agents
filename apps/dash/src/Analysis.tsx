@@ -6,6 +6,7 @@ import {
   type AnalysisBody,
   type AnalysisPayload,
   type AnalysisVideo,
+  type PairedVideoRef,
   type RefEcho,
 } from './api.js';
 
@@ -16,6 +17,12 @@ import {
  * derived. Form decisions locked 2026-09-10: idea_source chips + free text,
  * format / cta_type dropdowns with Other, paste-ID cross-platform ref with
  * echo, editable upsert, analysed_by from the session.
+ *
+ * Follow-up locked 2026-09-10: a video can pair with more than one other
+ * video at once (its YouTube twin AND its Instagram twin, once X9 lands),
+ * and ad status is tri-state — Yes / No / Don't know — since ad status is
+ * independent per video (one side of a pair can be boosted while the other
+ * isn't) and Eknoor shouldn't have to guess before she's checked Ads Manager.
  */
 
 const FORMAT_OPTIONS = ['Talking head', 'Skit', 'Screen/text overlay', 'Voiceover B-roll', 'Duet/Stitch', 'Live clip'];
@@ -23,6 +30,7 @@ const CTA_OPTIONS = ['Comment', 'Follow', 'Link in bio', 'DM', 'Enrol/Book', 'Sa
 const OTHER = 'Other';
 
 type AnalysedFilter = 'all' | 'todo' | 'done';
+type TriState = 'yes' | 'no' | 'unknown';
 
 interface FormState {
   description: string;
@@ -33,11 +41,10 @@ interface FormState {
   hasCta: '' | 'yes' | 'no';
   ctaChoice: string;
   ctaOther: string;
-  adBoosted: boolean;
+  adBoosted: TriState;
   adStartDate: string;
   adEndDate: string;
   adSpendDollars: string;
-  crossPlatformVideoId: string;
   ideaSource: string;
 }
 
@@ -59,20 +66,20 @@ function toForm(v: AnalysisVideo): FormState {
     hasCta: a?.hasCta === true ? 'yes' : a?.hasCta === false ? 'no' : '',
     ctaChoice: c.choice,
     ctaOther: c.other,
-    adBoosted: a?.adBoosted ?? false,
+    adBoosted: a?.adBoosted === true ? 'yes' : a?.adBoosted === false ? 'no' : 'unknown',
     adStartDate: a?.adStartDate ?? '',
     adEndDate: a?.adEndDate ?? '',
     adSpendDollars: a?.adSpendCents === null || a?.adSpendCents === undefined ? '' : (a.adSpendCents / 100).toFixed(2),
-    crossPlatformVideoId: v.crossPlatformRefVideo?.platformVideoId ?? '',
     ideaSource: a?.ideaSource ?? '',
   };
 }
 
-function toBody(f: FormState): AnalysisBody {
+function toBody(f: FormState, refs: PairedVideoRef[]): AnalysisBody {
   const nz = (s: string): string | null => (s.trim() === '' ? null : s.trim());
   const format = f.formatChoice === OTHER ? nz(f.formatOther) : nz(f.formatChoice);
   const cta = f.ctaChoice === OTHER ? nz(f.ctaOther) : nz(f.ctaChoice);
   const spend = f.adSpendDollars.trim() === '' ? null : Math.round(Number(f.adSpendDollars) * 100);
+  const adBoosted: boolean | null = f.adBoosted === 'yes' ? true : f.adBoosted === 'no' ? false : null;
   return {
     description: nz(f.description),
     hookText: nz(f.hookText),
@@ -80,11 +87,11 @@ function toBody(f: FormState): AnalysisBody {
     hasModel: f.hasModel === '' ? null : f.hasModel === 'yes',
     hasCta: f.hasCta === '' ? null : f.hasCta === 'yes',
     ctaType: f.hasCta === 'yes' ? cta : null,
-    adBoosted: f.adBoosted,
-    adStartDate: f.adBoosted ? nz(f.adStartDate) : null,
-    adEndDate: f.adBoosted ? nz(f.adEndDate) : null,
-    adSpendCents: f.adBoosted && spend !== null && Number.isFinite(spend) ? spend : null,
-    crossPlatformVideoId: nz(f.crossPlatformVideoId),
+    adBoosted,
+    adStartDate: adBoosted === true ? nz(f.adStartDate) : null,
+    adEndDate: adBoosted === true ? nz(f.adEndDate) : null,
+    adSpendCents: adBoosted === true && spend !== null && Number.isFinite(spend) ? spend : null,
+    crossPlatformVideoIds: refs.map((r) => r.platformVideoId),
     ideaSource: nz(f.ideaSource),
   };
 }
@@ -224,21 +231,32 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
   onSaved: (v: AnalysisVideo) => void;
 }) {
   const [f, setF] = useState<FormState>(() => toForm(video));
+  const [refs, setRefs] = useState<PairedVideoRef[]>(video.crossPlatformRefVideos);
+  const [refInput, setRefInput] = useState('');
+  const [refPreview, setRefPreview] = useState<RefEcho | null | 'missing'>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  const [refEcho, setRefEcho] = useState<RefEcho | null | 'missing'>(video.crossPlatformRefVideo === null ? null : { ...video.crossPlatformRefVideo, postedAt: '' });
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((prev) => ({ ...prev, [k]: v }));
 
   useEffect(() => {
-    const id = f.crossPlatformVideoId.trim();
-    if (id === '') { setRefEcho(null); return; }
-    if (id === video.crossPlatformRefVideo?.platformVideoId) return;
+    const id = refInput.trim();
+    if (id === '') { setRefPreview(null); return; }
     const t = setTimeout(() => {
-      lookupRef(id).then((r) => setRefEcho(r ?? 'missing')).catch(() => setRefEcho('missing'));
+      lookupRef(id).then((r) => setRefPreview(r ?? 'missing')).catch(() => setRefPreview('missing'));
     }, 400);
     return () => clearTimeout(t);
-  }, [f.crossPlatformVideoId, video.crossPlatformRefVideo]);
+  }, [refInput]);
+
+  const addRef = () => {
+    if (refPreview === null || refPreview === 'missing') return;
+    if (refPreview.id === video.id || refPreview.platform === video.platform) return;
+    if (refs.some((r) => r.id === refPreview.id)) { setRefInput(''); setRefPreview(null); return; }
+    setRefs((prev) => [...prev, { id: refPreview.id, platform: refPreview.platform, platformVideoId: refPreview.platformVideoId, title: refPreview.title }]);
+    setRefInput('');
+    setRefPreview(null);
+  };
+  const removeRef = (id: string) => setRefs((prev) => prev.filter((r) => r.id !== id));
 
   const m = video.metrics;
   const metric = (label: string, value: string | null) =>
@@ -248,11 +266,9 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
     setSaving(true);
     setMsg(null);
     try {
-      const result = await saveAnalysis(video.id, toBody(f));
-      const refVideo = refEcho !== null && refEcho !== 'missing' && f.crossPlatformVideoId.trim() !== ''
-        ? { id: refEcho.id, platform: refEcho.platform, platformVideoId: refEcho.platformVideoId, title: refEcho.title }
-        : null;
-      onSaved({ ...video, analysis: result.analysis, crossPlatformRefVideo: refVideo });
+      const result = await saveAnalysis(video.id, toBody(f, refs));
+      onSaved({ ...video, analysis: result.analysis, crossPlatformRefVideos: result.refs });
+      setRefs(result.refs);
       setMsg({ text: 'Saved.', ok: true });
     } catch (e) {
       const code = e instanceof Error ? e.message : 'error';
@@ -261,6 +277,17 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
       setSaving(false);
     }
   };
+
+  const refInputStatus =
+    refInput.trim() === '' ? ''
+      : refPreview === 'missing' ? 'No video with that ID in the data.'
+      : refPreview === null ? 'Looking up…'
+      : refPreview.id === video.id ? 'That is this video\u2019s own ID.'
+      : refPreview.platform === video.platform ? 'That video is on the same platform as this one.'
+      : refs.some((r) => r.id === refPreview.id) ? 'Already added.'
+      : `→ ${refPreview.platform}: ${refPreview.title ?? '(untitled)'} — press Add`;
+  const refInputOk = refInput.trim() !== '' && refPreview !== null && refPreview !== 'missing'
+    && refPreview.id !== video.id && refPreview.platform !== video.platform && !refs.some((r) => r.id === refPreview.id);
 
   return (
     <div className="card" style={{ position: 'sticky', top: 16 }}>
@@ -341,19 +368,17 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         </Field>
       )}
 
-      <label className="check">
-        <input type="checkbox" checked={f.adBoosted} onChange={(e) => set('adBoosted', e.target.checked)} />
-        <span className="check-box" aria-hidden="true">
-          <svg viewBox="0 0 12 12"><path d="M2 6.5l2.6 2.5L10 3.5" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </span>
-        <span>
-          Ad boosted{' '}
-          <span className="dim">
-            (check TikTok Ads Manager / Meta Ads Manager for this video — manual entry, no paid/organic split until X4)
-          </span>
-        </span>
-      </label>
-      {f.adBoosted && (
+      <Field label="Ad boosted? — check TikTok Ads Manager / Meta Ads Manager for this specific video">
+        <div className="chips">
+          {(['yes', 'no', 'unknown'] as const).map((v) => (
+            <button key={v} type="button" className={`chip ${f.adBoosted === v ? 'active' : ''}`} onClick={() => set('adBoosted', v)}>
+              {v === 'yes' ? 'Yes' : v === 'no' ? 'No' : "Don't know"}
+            </button>
+          ))}
+        </div>
+        <div className="hint">A video can be boosted on one platform and not on its twin — this only covers {video.platform} for this video. No paid/organic split until X4.</div>
+      </Field>
+      {f.adBoosted === 'yes' && (
         <div className="row3">
           <Field label="Ad start"><input type="date" className="input" value={f.adStartDate} onChange={(e) => set('adStartDate', e.target.value)} /></Field>
           <Field label="Ad end"><input type="date" className="input" value={f.adEndDate} onChange={(e) => set('adEndDate', e.target.value)} /></Field>
@@ -361,13 +386,27 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
         </div>
       )}
 
-      <Field label="Paired video on another platform — paste its video ID">
-        <input className="input" value={f.crossPlatformVideoId} onChange={(e) => set('crossPlatformVideoId', e.target.value)} placeholder="Platform video ID" />
-        <div className={`hint ${f.crossPlatformVideoId.trim() === '' ? '' : refEcho === 'missing' ? 'bad' : refEcho === null ? '' : 'ok'}`}>
-          {f.crossPlatformVideoId.trim() === '' ? 'Leave blank if there is no twin.'
-            : refEcho === 'missing' ? 'No video with that ID in the data.'
-            : refEcho === null ? 'Looking up…'
-            : `→ ${refEcho.platform}: ${refEcho.title ?? '(untitled)'}`}
+      <Field label="Equivalent videos on other platforms — paste each video ID, one per platform (e.g. its YouTube twin and its Instagram twin)">
+        {refs.length > 0 && (
+          <div className="chips">
+            {refs.map((r) => (
+              <span key={r.id} className="chip active" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {r.platform}: {r.title ?? '(untitled)'}
+                <button type="button" onClick={() => removeRef(r.id)} aria-label="Remove"
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, fontSize: 15, lineHeight: 1 }}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" style={{ flex: 1 }} value={refInput}
+            onChange={(e) => setRefInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addRef(); } }}
+            placeholder="Platform video ID" />
+          <button type="button" className="btn" disabled={!refInputOk} onClick={addRef}>Add</button>
+        </div>
+        <div className={`hint ${refInput.trim() === '' ? '' : refInputOk ? 'ok' : 'bad'}`}>
+          {refInput.trim() === '' ? 'Leave blank if there is no twin yet.' : refInputStatus}
         </div>
       </Field>
 

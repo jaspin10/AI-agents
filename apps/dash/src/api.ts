@@ -119,14 +119,22 @@ export interface ContentAnalysis {
   hasModel: boolean | null;
   hasCta: boolean | null;
   ctaType: string | null;
-  adBoosted: boolean;
+  /** Tri-state (locked 2026-09-10): true boosted / false not boosted / null don't know. */
+  adBoosted: boolean | null;
   adStartDate: string | null;
   adEndDate: string | null;
   adSpendCents: number | null;
-  crossPlatformRef: string | null;
   ideaSource: string | null;
   analysedBy: string;
   analysedAt: string;
+}
+
+/** A paired video shown inline (no postedAt — that only comes from the ref-lookup echo). */
+export interface PairedVideoRef {
+  id: string;
+  platform: string;
+  platformVideoId: string;
+  title: string | null;
 }
 
 export interface AnalysisVideo {
@@ -138,7 +146,8 @@ export interface AnalysisVideo {
   /** Latest snapshot, or null when the sync has not captured this video yet. */
   metrics: (PerformanceRecord['metrics'] & { capturedDate: string }) | null;
   analysis: ContentAnalysis | null;
-  crossPlatformRefVideo: { id: string; platform: string; platformVideoId: string; title: string | null } | null;
+  /** 0..N equivalent videos on other platforms (locked 2026-09-10: more than one at once, e.g. YouTube + Instagram twins). */
+  crossPlatformRefVideos: PairedVideoRef[];
 }
 
 export interface AnalysisPayload {
@@ -154,11 +163,11 @@ export interface AnalysisBody {
   hasModel: boolean | null;
   hasCta: boolean | null;
   ctaType: string | null;
-  adBoosted: boolean;
+  adBoosted: boolean | null;
   adStartDate: string | null;
   adEndDate: string | null;
   adSpendCents: number | null;
-  crossPlatformVideoId: string | null;
+  crossPlatformVideoIds: string[];
   ideaSource: string | null;
 }
 
@@ -182,6 +191,9 @@ export async function lookupRef(platformVideoId: string): Promise<RefEcho | null
   return (await response.json()) as RefEcho;
 }
 
-export function saveAnalysis(contentId: string, body: AnalysisBody): Promise<{ ok: true; analysis: ContentAnalysis }> {
+export function saveAnalysis(
+  contentId: string,
+  body: AnalysisBody
+): Promise<{ ok: true; analysis: ContentAnalysis; refs: PairedVideoRef[] }> {
   return sendJson('PUT', `/api/analysis/${contentId}`, body);
 }
