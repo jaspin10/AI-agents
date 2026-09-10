@@ -1,7 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { readFile } from 'node:fs/promises';
-import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
@@ -29,14 +28,12 @@ const logger = createLogger('api');
  *      route (see requireRole). Nothing is re-verified against the portal.
  *
  * With no cookie and no token: pages bounce to the portal, /api/* answers
- * 401 JSON. There is no login form and no Basic Auth challenge on the public
- * surface. Locked by Jas 2026-09-10.
- *
- * TRANSITION ONLY: while DASH_PASSWORD is still set on Railway, GET
- * /auth/basic is the fallback door for Jas if the handoff breaks. It is the
- * one route that issues a Basic challenge, and it disappears the moment
- * DASH_PASSWORD is unset. Remove the whole block once X0 is verified end
- * to end.
+ * 401 JSON. There is no login form and no password gate anywhere on this
+ * surface — the portal is the only door, permanently. Locked by Jas
+ * 2026-09-10, verified end to end 2026-09-10 (handoff ok: owner
+ * learn@frenchwithjas.ca), and DASH_PASSWORD retired the same day. The
+ * interim HTTP Basic fallback (`/auth/basic`) that bridged the switchover
+ * is gone — this is the permanent shape.
  */
 
 const DASH_ROLES = ['owner', 'marketing'] as const;
@@ -45,7 +42,7 @@ type DashRole = (typeof DASH_ROLES)[number];
 interface DashAuth {
   role: DashRole;
   email: string;
-  via: 'session' | 'basic' | 'dev';
+  via: 'session' | 'dev';
 }
 
 type Env = { Variables: { auth: DashAuth | null } };
@@ -139,32 +136,7 @@ async function authFromSessionCookie(c: Context<Env>): Promise<DashAuth | null> 
   }
 }
 
-/* ---- Transition-only Basic fallback (delete with DASH_PASSWORD) ---- */
-const dashUser = process.env['DASH_USER'] ?? 'owner';
-const dashPassword = process.env['DASH_PASSWORD'];
-const basicFallbackEnabled = dashPassword !== undefined && dashPassword.trim() !== '';
-
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
-
-function basicHeaderMatches(header: string | undefined): boolean {
-  if (!basicFallbackEnabled || dashPassword === undefined) return false;
-  if (header === undefined || !header.startsWith('Basic ')) return false;
-  let decoded = '';
-  try {
-    decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
-  } catch {
-    return false;
-  }
-  const idx = decoded.indexOf(':');
-  if (idx < 0) return false;
-  return safeEqual(decoded.slice(0, idx), dashUser) && safeEqual(decoded.slice(idx + 1), dashPassword);
-}
-
-/* ---- Local dev only. Ignored on Railway, always. ---- */
+/** Local dev only. Ignored on Railway, always. */
 function authFromDevRole(): DashAuth | null {
   if (onRailway) return null;
   const role = process.env['DASH_DEV_ROLE'];
@@ -244,21 +216,6 @@ app.get('/auth/handoff', async (c) => {
     logger.warn(`handoff refused: ${error instanceof Error ? error.name : 'invalid token'}`);
     return c.redirect(portalUrl, 302);
   }
-});
-
-/**
- * TRANSITION ONLY — the fallback door. Exists only while DASH_PASSWORD is set.
- * Issues the same 12h cookie as the handoff, as owner. Unset the var and this
- * route bounces to the portal like everything else.
- */
-app.get('/auth/basic', async (c) => {
-  if (!basicFallbackEnabled || !tokenSecretOk) return c.redirect(portalUrl, 302);
-  if (basicHeaderMatches(c.req.header('authorization'))) {
-    await issueSession(c, { sub: 'basic-fallback', email: dashUser, role: 'owner' });
-    logger.info('basic fallback used — owner session issued');
-    return c.redirect('/', 302);
-  }
-  return c.text('Unauthorized', 401, { 'WWW-Authenticate': 'Basic realm="analyst-dash fallback"' });
 });
 
 // Every /api/* route needs a resolved caller. Role checks are per route below.
@@ -371,7 +328,6 @@ const port = Number(process.env['PORT'] ?? 8787);
 serve({ fetch: app.fetch, port }, () =>
   logger.info(
     `API + dash on port ${port}` +
-      (tokenSecretOk ? '' : ' (portal handoff DISABLED — set DASH_TOKEN_SECRET)') +
-      (basicFallbackEnabled ? ' [transition: /auth/basic fallback active]' : '')
+      (tokenSecretOk ? '' : ' (portal handoff DISABLED — set DASH_TOKEN_SECRET)')
   )
 );

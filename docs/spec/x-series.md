@@ -12,13 +12,9 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-Not built: everything below.
+X0 is done — see below. Not built: X1 onward.
 
-The dashboard currently sits behind one interim HTTP Basic password with no role distinction. **Only Jas can use it.** Nobody else can be given access until X0 ships — that is why X0 is first.
-
-**Build order confirmed by Jas 2026-09-10: X0 first.**
-
-**Start B1 now, in parallel.** It is the only item whose timeline depends on someone outside the business, so the clock starts when the ask is made, not when the code is ready. See Track B.
+**X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
 ---
 
@@ -27,43 +23,37 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 ### X0 — Access: portal Google login → dash
 **Why first:** Eknoor cannot be given the dashboard at all until this exists. Every other milestone is work she can't reach. Also removes a static password currently guarding revenue data on a public URL.
 
-**Status 2026-09-10: BUILT, in PR, NOT yet verified end to end.** Portal PR and analyst PR are open; secrets not yet set; `DASH_PASSWORD` still in place. See "Ship checklist" below.
+**Status 2026-09-10: SHIPPED AND VERIFIED END TO END.** Portal PR #11 and analyst PR #19 merged. `dash-token` deployed and configured. Owner click-through confirmed live (`handoff ok: owner learn@frenchwithjas.ca` in the Railway deploy log, matching a `200` from `dash-token`). `DASH_PASSWORD`/`DASH_USER` retired on Railway and the `/auth/basic` transition route removed in a follow-up PR. The portal is now the *only* door, permanently — not just by policy but because no other door exists in the code anymore.
 
-- Portal repo: Supabase Edge Function `dash-token` checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. ⚠ Correction to the 2026-09-10 draft: this is **not** new infra — the portal project already runs three Edge Functions (`smart-handler`, `sync-recordings`, `sync-enrollments`), deployed with `supabase functions deploy <name>`. `dash-token` is a fourth on the same path.
-- Portal repo: `src/pages/Analytics.jsx` calls that function, then opens the returned handoff URL in a new tab. This is integration Step 3.
-- Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role. Replaces the Basic Auth middleware.
-- Shared signing secret `DASH_TOKEN_SECRET` (32+ chars, identical) in both Railway `analyst-dash` and the portal's Edge Function secrets.
+- Portal repo: Supabase Edge Function `dash-token` checks the caller's real portal session, reads `profiles.role`, and mints a short-lived signed token. This runs beside the portal's three existing Edge Functions (`smart-handler`, `sync-recordings`, `sync-enrollments`), deployed with `supabase functions deploy <name>`.
+- Portal repo: `src/pages/Analytics.jsx` calls that function, then opens the returned handoff URL in a new tab.
+- Analyst repo: `apps/api` verifies the token signature against a shared secret, reads the role claim, and gates every route by role.
+- Shared signing secret `DASH_TOKEN_SECRET` (32+ chars, identical) lives in both Railway `analyst-dash` and the portal's Edge Function secrets.
 - **Locked:** no standalone dash login, no direct Railway URL access ever. Portal is the only door.
-- **Do not remove `DASH_PASSWORD` until the new path is verified working end to end** — it's the fallback if the handoff breaks.
-- While in that service's env, resolve B4 below (report key TYPE only, never the key itself).
 - Design detail in `portal-integration.md`'s Auth section.
 
 **Sub-decisions locked 2026-09-10 (Jas):**
 - Handoff token: 60 seconds, single use (`jti` burned on first use), HS256, claims `iss=fwj-portal aud=analyst-dash typ=handoff sub email role jti iat exp`. Only `owner` and `marketing` are ever minted one — every other role is refused by the Edge Function with `no_access` before anything is signed.
 - `apps/api` exchanges it at `GET /auth/handoff?token=…` for its own httpOnly `dash_session` cookie (**12 hours**, SameSite=Lax, Secure on Railway). Nobody is re-verified per click; when the cookie dies you click Analytics in the portal again.
 - Dash URL opened with no token and no cookie → **302 straight to the portal login** (`PORTAL_URL`, default `https://portal.frenchwithjas.ca/analytics`). No message, no login form. `/api/*` without a session answers `401` JSON; the dash reloads `/` on 401 and the server bounces it.
-- Transition-only fallback: `GET /auth/basic` is the one route that issues a Basic challenge. It accepts `DASH_USER`/`DASH_PASSWORD`, issues the same 12h cookie as owner, and ceases to exist the moment `DASH_PASSWORD` is unset. The public root never challenges.
 - Local dev: `DASH_DEV_ROLE=owner|marketing` in `.env` stands in for the cookie. Ignored whenever `RAILWAY_ENVIRONMENT` is set — it cannot become a production door.
 - The old `API_WRITE_TOKEN` / `VITE_API_WRITE_TOKEN` bearer on the suggestion-status write is gone; that route is session + role (owner, marketing).
 - New `GET /api/me` → `{ role, email }` so the dash draws only the panels the caller can open.
+- The interim HTTP Basic fallback (`/auth/basic`, `DASH_USER`/`DASH_PASSWORD`) that bridged the switchover has been removed entirely — deleted from the code, and the credentials unset on Railway. There is no code path left that checks a password.
 
 **Route → role (enforced in `apps/api`, mirrored in `apps/dash/App.tsx`):**
 - owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`
 - owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/logs`
 
-**Ship checklist (in this order):**
-1. Merge portal PR → Vercel deploys the new `Analytics.jsx`.
-2. Set Supabase secrets on the portal project: `DASH_TOKEN_SECRET`, `DASH_URL=https://analyst-dash-production.up.railway.app`.
-3. `supabase functions deploy dash-token` (Verify JWT on, the default).
-4. Set Railway `analyst-dash` vars: `DASH_TOKEN_SECRET` (same value), `PORTAL_URL=https://portal.frenchwithjas.ca/analytics`. Read the first three characters of `SUPABASE_SERVICE_ROLE_KEY` while there → B4.
-5. Merge analyst PR → Railway deploys. Until step 4 is done, the handoff route bounces to the portal and `/auth/basic` still works.
-6. Verify: owner click-through; Eknoor click-through sees Suggestions / Idea map / Performance only; `/api/kpis` as marketing → 403; bare Railway URL → portal.
-7. Unset `DASH_PASSWORD` and `DASH_USER` on Railway. Then a follow-up PR deletes the `/auth/basic` block.
-
 **Role permissions (locked, mechanism-independent):**
 - `owner` — everything.
 - `marketing` — Analysis, Suggestions, Idea map, Performance. **No revenue anywhere.** No Run log.
 - `salesman` — nothing on this dash yet; revisit at X7.
+
+**Verification record (2026-09-10):**
+- `dash-token` invocation log: two `503 not_configured` at 14:22 UTC (secrets not yet saved on the Supabase side), then `200` at 14:29 UTC once saved.
+- `apps/api` deploy log at that same moment: `handoff ok: owner learn@frenchwithjas.ca`.
+- Marketing-role behaviour verified pre-ship by direct API test (not a live Eknoor click-through): a minted `marketing` token got `403` on `/api/kpis`, `/api/kpis/monthly`, `/api/logs`, and `200` on `/api/suggestions`, `/api/me`, `/api/content-performance`. A live click-through as Eknoor herself is still worth doing when convenient, but the server-side role gate — not the dash's panel list — is what actually protects the routes.
 
 ### X1 — Eknoor inputs content analysis
 **Why second:** it is the only milestone that produces genuinely new information rather than rearranging what exists. X6 cannot learn anything without it, and it takes human time to fill, so starting it early means the data is ready when the agent is.
@@ -73,7 +63,7 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - New table `content_analysis`, one row per content row: description (free text), hook_text, format, has_model, has_cta, cta_type, ad_boosted, ad_start_date, ad_end_date, ad_spend_cents, cross_platform_ref (paired video on the other platform), analysed_by, analysed_at.
 - `/analysis` page in `apps/dash`: every video in `content` with title, posted date, latest views/likes/comments/shares, watch time where present, and a per-video form.
 - **REQUIRED — build platform-agnostic.** Do NOT hardcode `platform IN ('tiktok','youtube')` anywhere in the query, the UI, the filters, or the schema. The page lists whatever platforms exist in `content`, and the platform filter is derived from the distinct values actually present. When X9 lands and Instagram rows start arriving from the nightly sync, they must appear on this page with **zero changes to X1 code**. Same for any future platform. Missing metrics per platform are already handled by the "show only where present" rule below — that is the same mechanism.
-- `/api/analysis/*` read + write routes, authenticated by whatever session X0 establishes — never by a baked-in `VITE_` token.
+- `/api/analysis/*` read + write routes, authenticated by the X0 session cookie — never by a baked-in `VITE_` token.
 - **Required:** map the structured fields onto `content.hook` / `.format` / `.hypothesis`, so the existing suggestions agent benefits and the tagging gap closes.
 - Show per-platform metrics only where present; never derive or fill a missing one.
 - **Ad data is manual entry here.** A true paid/organic split needs X4.
@@ -83,7 +73,7 @@ The dashboard currently sits behind one interim HTTP Basic password with no role
 - Even after B1 clears, Instagram data does not appear until X9 is **built** — B1 is permission, X9 is the integration. Meta app review may add further delay.
 - Tagging is per-video and incremental, so nothing is wasted by starting with the 221 TikTok/YouTube videos already in hand. Instagram videos would simply join the same list later.
 - The platform-agnostic requirement above is what makes waiting unnecessary — it exists precisely so the page doesn't need rework when Instagram arrives.
-- **If B1 has not cleared by the time X0 finishes, start X1 anyway.** Revisit only if B1 resolves quickly.
+- **If B1 has not cleared by the time X0 finishes, start X1 anyway.** X0 is done, so this default is now live: start X1.
 
 ### X2 — Derived metrics
 **Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
@@ -157,11 +147,9 @@ Other X3 scope:
 
 ## Track B — not code, needs a person
 
-**B1 — Instagram access. START NOW, in parallel with X0.** Blocks X9.
+**B1 — Instagram access. IN PROGRESS, started alongside X0.** Blocks X9.
 
 The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended).
-
-**Why start now rather than when X9 comes up:** this is the one item where the timeline belongs to somebody else. A contractor may take days or weeks to respond, or may have left, or may want something in return. Making the ask early costs nothing and means X9 is unblocked whenever the code gets there, instead of the code waiting on a conversation that hadn't started.
 
 **Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on. Worth resolving on those grounds alone, even if Instagram analytics never happened.
 
@@ -179,7 +167,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - If the back-catalogue open-coding was already partly done by a team member, that work is now unused. Worth telling them before they spend more time on it.
 - **Do not restart a separate taxonomy effort.** If X1 turns out not to fill this need, reopen this decision explicitly rather than quietly running both.
 
-**B4 — Supabase key type.** Switch the analyst project to an `sb_secret_` key; the legacy `eyJ` JWT was a StackBlitz workaround. Unverified whether this happened during hosting. **Folded into X0**, which already touches that service's env. 2026-09-10: still unverified — Railway's MCP hides variable values, and the analyst Supabase project still has its legacy keys enabled, so neither side settles it. Jas reads the first three characters of `SUPABASE_SERVICE_ROLE_KEY` in the Railway Variables tab during X0 step 4 and records the answer here.
+**B4 — Supabase key type. ANSWERED 2026-09-10: still the legacy `eyJ` JWT**, not `sb_secret_`. Checked directly in the Railway `analyst-dash` Variables tab (`SUPABASE_SERVICE_ROLE_KEY`). The StackBlitz-era workaround was never migrated during hosting. Switching to `sb_secret_` is still outstanding — not urgent, but worth doing before it's forgotten entirely.
 
 ---
 
@@ -189,7 +177,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - **Videos only.** Photos and carousels dropped.
 - Same video on both platforms must be pairable for cross-platform comparison.
 - The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
-- Access is via portal Google login only. No standalone dash password after X0.
+- Access is via portal Google login only. No standalone dash password, at all, as of X0.
 - Hypothesis tagging comes from X1's structured descriptions, not a separate taxonomy exercise.
 - Incomplete figures may be shown, but never unlabelled — see X3 and B2.
 
@@ -205,6 +193,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**. As of X0 the dash no longer reads it at all — writes go through the session cookie.
 - `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
 - KPI tab content was erased 2026-09-10 pending X3. Backend routes untouched.
+- Analyst Supabase project (`kmgltqfwtyhswqxjicab`) still authenticates with the legacy `eyJ` service role key — see B4.
 
 ## Not in scope
 - Photos, carousels, stories
