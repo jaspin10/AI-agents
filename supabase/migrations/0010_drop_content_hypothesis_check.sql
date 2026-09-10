@@ -1,0 +1,21 @@
+-- 0010 · X1 bugfix — drop stale content.hypothesis CHECK (docs/spec/x-series.md, X1)
+--
+-- Migration 0001 (M2) constrained content.hypothesis to a fixed
+-- ('H1', 'H2', 'H3') taxonomy. X1 (migration 0005) replaced that taxonomy
+-- with a mechanical tag derived from the structured analysis fields —
+-- <format-slug>[+model][+cta:<slug>], e.g. "duet-stitch+cta:comment" — and
+-- 0005's own comment already states the principle: "No CHECK enums — a new
+-- value must never need a migration or a deploy." That principle was
+-- applied to the new content_analysis table but the old constraint on
+-- content.hypothesis itself was never dropped, so every
+-- PUT /api/analysis/:contentId save has been failing 500 since X1 shipped:
+--
+--   Error: Supabase content set tags failed: new row for relation
+--   "content" violates check constraint "content_hypothesis_check"
+--
+-- Found 2026-09-10 when both Jas and Eknoor hit it on their first live
+-- saves. X6 will eventually replace this mechanical tag with something
+-- derived from the free-text description, so the column stays open text,
+-- same as every other X1 classification field.
+
+alter table public.content drop constraint if exists content_hypothesis_check;
