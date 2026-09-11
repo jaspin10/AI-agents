@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getJson, type SuggestionRow } from './api.js';
+import { getInsights, getJson, type IdeaEdge, type InsightsPayload, type SuggestionRow } from './api.js';
 
 export function IdeaMap() {
   const [rows, setRows] = useState<SuggestionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<SuggestionRow | null>(null);
+  /** X6: suggestion → source videos → outcome, from the latest insights run. */
+  const [insights, setInsights] = useState<InsightsPayload | null>(null);
 
   useEffect(() => {
     getJson<SuggestionRow[]>('/api/suggestions').then(setRows).catch((e: Error) => setError(e.message));
+    getInsights().then(setInsights).catch(() => setInsights(null));
   }, []);
+
+  const edgeById = useMemo(() => {
+    const map = new Map<string, IdeaEdge>();
+    for (const e of insights?.run?.report.edges ?? []) map.set(e.suggestionId, e);
+    return map;
+  }, [insights]);
+  const videoLabel = (id: string): string => {
+    const v = insights?.videos[id];
+    return v === undefined ? id : `[${v.platform}] ${v.title ?? v.platformVideoId}`;
+  };
 
   const groups = useMemo(() => {
     const map = new Map<string, SuggestionRow[]>();
@@ -53,8 +66,9 @@ export function IdeaMap() {
           </div>
         ))}
         <div className="card dim" style={{ fontSize: 12 }}>
-          Nodes are suggestions, grouped by hypothesis tag. Purple border = surfaced, red = rejected. Edges to source
-          videos and outcomes arrive with the M5+ feedback loop (posted/skipped → performance).
+          Nodes are suggestions, grouped by hypothesis tag. Purple border = surfaced, red = rejected. Click a node to see
+          its X6 edges: source videos (same tag, posted before) → outcome videos (auto-matched: idea source "AI agent", posted
+          after, same tag or format). Outcomes are never confirmed by a person — the match is automatic.
         </div>
       </div>
       <div style={{ flex: 1, position: 'sticky', top: 28 }}>
@@ -67,6 +81,27 @@ export function IdeaMap() {
             <div><span className="dim">Format:</span> {selected.payload.format ?? '—'}</div>
             <div><span className="dim">Status:</span> {selected.status}</div>
             <div style={{ marginTop: 8 }} className="dim">{selected.payload.rationale ?? ''}</div>
+            {(() => {
+              const e = edgeById.get(selected.id);
+              if (e === undefined) return <div className="dim" style={{ marginTop: 10, fontSize: 12 }}>No insights run yet — edges appear after the first run.</div>;
+              return (
+                <div style={{ marginTop: 10, fontSize: 13 }}>
+                  <div className="dim" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Source videos ({e.sourceVideoIds.length})</div>
+                  {e.sourceVideoIds.length === 0 ? <div className="dim">none — suggestion has no hypothesis tag or no earlier tagged videos</div> : null}
+                  {e.sourceVideoIds.slice(0, 8).map((id) => <div key={id}>{videoLabel(id)}</div>)}
+                  <div className="dim" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 }}>
+                    Outcome ({e.outcomes.length}) <span className="badge amber">auto-matched</span>
+                  </div>
+                  {e.outcomes.length === 0 ? <div className="dim">no AI-agent video matched yet</div> : null}
+                  {e.outcomes.map((o) => (
+                    <div key={o.contentId}>
+                      {o.verdict === 'above_median' ? <span className="badge green">above median</span> : o.verdict === 'below_median' ? <span className="badge red">below median</span> : <span className="badge">unscored</span>}{' '}
+                      {videoLabel(o.contentId)} <span className="dim">({o.engagementRatePct === null ? 'n/a' : `${o.engagementRatePct}%`} vs {o.platformMedianPct ?? 'n/a'}%, via {o.matchedOn})</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
