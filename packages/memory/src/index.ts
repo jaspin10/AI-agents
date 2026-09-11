@@ -7,7 +7,7 @@ import { createMemoryClientFromConfig, type MemoryClient } from './client.js';
 export { JsonFileLogStore, type LogStore } from './log-store.js';
 export { readSupabaseConfig, type SupabaseConfig } from './config.js';
 export { SupabaseLogStore } from './supabase-log-store.js';
-export { createMemoryClientFromConfig, type MemoryClient, type ContentAnalysisRow, type RefPair, type AdRun } from './client.js';
+export { createMemoryClientFromConfig, type MemoryClient, type ContentAnalysisRow, type RefPair, type AdRun, type InsightRunRow, type HypothesisSuggestionRow } from './client.js';
 export { monthlyKpis, type MonthlyKpis } from './kpis.js';
 
 /**

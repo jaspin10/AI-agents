@@ -21,6 +21,7 @@
     "baseline": "pnpm run build && node --env-file=.env packages/integrations/dist/baseline.js",
     "embed:brand": "node --env-file=.env packages/memory/scripts/embed-brand.mjs",
     "suggest": "pnpm run build && node --env-file=.env apps/orchestrator/dist/suggest.js",
+    "insights": "pnpm run build && node --env-file=.env apps/orchestrator/dist/insights.js",
     "dash": "pnpm run build && (node --env-file=.env apps/api/dist/index.js & pnpm --filter @platform/dash run dev)",
     "slack": "pnpm run build && node --env-file=.env apps/slack/dist/index.js",
     "report": "pnpm run build && node --env-file=.env apps/slack/dist/report.js"

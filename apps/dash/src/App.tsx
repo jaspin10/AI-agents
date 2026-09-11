@@ -7,20 +7,21 @@ import { Kpis } from './Kpis.js';
 import { RunLog } from './RunLog.js';
 import { IdeaMap } from './IdeaMap.js';
 import { Metrics } from './Metrics.js';
+import { Insights } from './Insights.js';
 
-const ALL_PANELS = ['Analysis', 'Metrics', 'Suggestions', 'Idea map', 'Performance', 'KPIs', 'Run log'] as const;
+const ALL_PANELS = ['Analysis', 'Metrics', 'Insights', 'Suggestions', 'Idea map', 'Performance', 'KPIs', 'Run log'] as const;
 type Panel = (typeof ALL_PANELS)[number];
 
 /**
  * X0 role permissions (locked, docs/spec/x-series.md):
  *   owner     — everything
- *   marketing — Analysis (X1), Metrics (X2), Suggestions, Idea map, Performance.
+ *   marketing — Analysis (X1), Metrics (X2), Insights (X6), Suggestions, Idea map, Performance.
  *               No revenue anywhere, no Run log.
  * The API enforces this on every route; this list only decides what to draw.
  */
 const PANELS_BY_ROLE: Record<Me['role'], readonly Panel[]> = {
   owner: ALL_PANELS,
-  marketing: ['Analysis', 'Metrics', 'Suggestions', 'Idea map', 'Performance'],
+  marketing: ['Analysis', 'Metrics', 'Insights', 'Suggestions', 'Idea map', 'Performance'],
 };
 
 export function App() {
@@ -57,6 +58,7 @@ export function App() {
         <div className="h1">{current}</div>
         {current === 'Analysis' ? <Analysis /> :
          current === 'Metrics' ? <Metrics /> :
+         current === 'Insights' ? <Insights /> :
          current === 'Suggestions' ? <Suggestions /> :
          current === 'Idea map' ? <IdeaMap /> :
          current === 'Performance' ? <Performance /> :
