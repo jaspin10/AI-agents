@@ -66,6 +66,42 @@ export interface AdRun {
 }
 
 /**
+ * X6 (migration 0011): one run of the insights agent. `report` is the full
+ * JSON payload (per-platform claims + evidence, pairs, edges, narrative,
+ * standing caution). Stored as-is; the dash and Slack both read this.
+ */
+export interface InsightRunRow {
+  id: string;
+  runId: string;
+  trigger: 'cron' | 'manual';
+  triggeredBy: string;
+  status: 'ok' | 'numbers_only';
+  videoCount: number;
+  analysedCount: number;
+  report: Record<string, unknown>;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: string;
+}
+
+/**
+ * X6 (migration 0011): a hypothesis tag the LLM proposed from a description.
+ * Suggest-only (locked 2026-09-10) — content.hypothesis is written only when
+ * a person approves via hypothesisSuggestions.decide.
+ */
+export interface HypothesisSuggestionRow {
+  id: string;
+  runId: string;
+  contentId: string;
+  tag: string;
+  rationale: string | null;
+  status: 'suggested' | 'approved' | 'rejected';
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+/**
  * Typed read/write helpers for the §3 memory tables. Insert helpers validate
  * with Zod before writing; read helpers validate after reading.
  * M4 adds: brandAssets.updateEmbeddings + search (pgvector via match_brand_assets),
@@ -103,6 +139,21 @@ export interface MemoryClient {
     setTags: (id: string, tags: { hook: string | null; format: string | null; hypothesis: string | null }) => Promise<void>;
     /** Relabel an existing row's platform in place, preserving its id and every FK into it. */
     reclassifyPlatform: (id: string, platform: string) => Promise<void>;
+    /** X6: write ONLY content.hypothesis (approved tag). hook/format untouched. */
+    setHypothesis: (id: string, hypothesis: string | null) => Promise<void>;
+  };
+  insightRuns: {
+    insert: (row: Omit<InsightRunRow, 'id' | 'createdAt'>) => Promise<InsightRunRow>;
+    latest: () => Promise<InsightRunRow | null>;
+    /** Newest first, report omitted (just the metadata) — for the run list. */
+    recent: (limit?: number) => Promise<Array<Omit<InsightRunRow, 'report'>>>;
+  };
+  hypothesisSuggestions: {
+    /** Insert proposals; an existing (content_id, tag) row is left untouched (its decision stands). Returns rows actually inserted. */
+    propose: (rows: Array<{ runId: string; contentId: string; tag: string; rationale: string | null }>) => Promise<number>;
+    all: () => Promise<HypothesisSuggestionRow[]>;
+    byId: (id: string) => Promise<HypothesisSuggestionRow | null>;
+    decide: (id: string, status: 'approved' | 'rejected', decidedBy: string) => Promise<void>;
   };
   contentAnalysis: {
     all: () => Promise<ContentAnalysisRow[]>;
@@ -195,6 +246,40 @@ function parseContentAnalysisRow(r: Record<string, unknown>): ContentAnalysisRow
     ideaSource: text(r['idea_source']),
     analysedBy: String(r['analysed_by']),
     analysedAt: new Date(String(r['analysed_at'])).toISOString(),
+  };
+}
+
+function parseInsightRun(r: Record<string, unknown>): InsightRunRow {
+  const trigger = r['trigger'] === 'manual' ? 'manual' : 'cron';
+  const status = r['status'] === 'numbers_only' ? 'numbers_only' : 'ok';
+  return {
+    id: String(r['id']),
+    runId: String(r['run_id']),
+    trigger,
+    triggeredBy: String(r['triggered_by']),
+    status,
+    videoCount: Number(r['video_count'] ?? 0),
+    analysedCount: Number(r['analysed_count'] ?? 0),
+    report: (r['report'] ?? {}) as Record<string, unknown>,
+    inputTokens: Number(r['input_tokens'] ?? 0),
+    outputTokens: Number(r['output_tokens'] ?? 0),
+    createdAt: new Date(String(r['created_at'])).toISOString(),
+  };
+}
+
+function parseHypothesisSuggestion(r: Record<string, unknown>): HypothesisSuggestionRow {
+  const raw = r['status'];
+  const status = raw === 'approved' || raw === 'rejected' ? raw : 'suggested';
+  return {
+    id: String(r['id']),
+    runId: String(r['run_id']),
+    contentId: String(r['content_id']),
+    tag: String(r['tag']),
+    rationale: r['rationale'] === null || r['rationale'] === undefined ? null : String(r['rationale']),
+    status,
+    decidedBy: r['decided_by'] === null || r['decided_by'] === undefined ? null : String(r['decided_by']),
+    decidedAt: r['decided_at'] === null || r['decided_at'] === undefined ? null : new Date(String(r['decided_at'])).toISOString(),
+    createdAt: new Date(String(r['created_at'])).toISOString(),
   };
 }
 
@@ -335,6 +420,79 @@ export function createMemoryClientFromConfig(
       async reclassifyPlatform(id, platform) {
         const { error } = await db.from('content').update({ platform }).eq('id', id);
         if (error) fail('content', 'reclassify platform', error.message);
+      },
+      async setHypothesis(id, hypothesis) {
+        const { error } = await db.from('content').update({ hypothesis }).eq('id', id);
+        if (error) fail('content', 'set hypothesis', error.message);
+      },
+    },
+    insightRuns: {
+      async insert(row) {
+        const { data, error } = await db
+          .from('insight_runs')
+          .insert({
+            run_id: row.runId,
+            trigger: row.trigger,
+            triggered_by: row.triggeredBy,
+            status: row.status,
+            video_count: row.videoCount,
+            analysed_count: row.analysedCount,
+            report: row.report,
+            input_tokens: row.inputTokens,
+            output_tokens: row.outputTokens,
+          })
+          .select('*')
+          .single();
+        if (error) fail('insight_runs', 'insert', error.message);
+        return parseInsightRun(data as Record<string, unknown>);
+      },
+      async latest() {
+        const { data, error } = await db.from('insight_runs').select('*').order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) fail('insight_runs', 'select latest', error.message);
+        return data === null ? null : parseInsightRun(data);
+      },
+      async recent(limit = 20) {
+        const { data, error } = await db
+          .from('insight_runs')
+          .select('id, run_id, trigger, triggered_by, status, video_count, analysed_count, input_tokens, output_tokens, created_at')
+          .order('created_at', { ascending: false })
+          .limit(limit);
+        if (error) fail('insight_runs', 'select recent', error.message);
+        return (data ?? []).map((r) => {
+          const { report: _report, ...rest } = parseInsightRun({ ...r, report: {} });
+          return rest;
+        });
+      },
+    },
+    hypothesisSuggestions: {
+      async propose(rows) {
+        if (rows.length === 0) return 0;
+        const { data, error } = await db
+          .from('hypothesis_suggestions')
+          .upsert(
+            rows.map((r) => ({ run_id: r.runId, content_id: r.contentId, tag: r.tag, rationale: r.rationale })),
+            { onConflict: 'content_id,tag', ignoreDuplicates: true }
+          )
+          .select('id');
+        if (error) fail('hypothesis_suggestions', 'upsert', error.message);
+        return (data ?? []).length;
+      },
+      async all() {
+        const { data, error } = await db.from('hypothesis_suggestions').select('*').order('created_at', { ascending: false });
+        if (error) fail('hypothesis_suggestions', 'select', error.message);
+        return (data ?? []).map((r) => parseHypothesisSuggestion(r));
+      },
+      async byId(id) {
+        const { data, error } = await db.from('hypothesis_suggestions').select('*').eq('id', id).maybeSingle();
+        if (error) fail('hypothesis_suggestions', 'select by id', error.message);
+        return data === null ? null : parseHypothesisSuggestion(data);
+      },
+      async decide(id, status, decidedBy) {
+        const { error } = await db
+          .from('hypothesis_suggestions')
+          .update({ status, decided_by: decidedBy, decided_at: new Date().toISOString() })
+          .eq('id', id);
+        if (error) fail('hypothesis_suggestions', 'decide', error.message);
       },
     },
     contentAnalysis: {
