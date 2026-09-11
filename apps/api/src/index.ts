@@ -6,6 +6,8 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { cors } from 'hono/cors';
 import { getCookie, setCookie } from 'hono/cookie';
 import { sign, verify } from 'hono/jwt';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createMemoryClient, monthlyKpis, type ContentAnalysisRow } from '@platform/memory';
 import { AD_SPLIT_LABEL, adSplit, createLogger, followerNormalised, rates, velocity, type PerformanceRecord, type Snapshot } from '@platform/shared';
 import type { ContentRow } from '@platform/shared';
@@ -590,6 +592,81 @@ app.put('/api/analysis/:contentId', requireRole('owner', 'marketing'), async (c)
   const savedRuns = body.adBoosted === true ? await memory.contentAdRuns.all().then((all) => all.filter((r) => r.contentId === contentId)) : [];
 
   return c.json({ ok: true, analysis: row, refs, adRuns: savedRuns, tags: { hook: row.hookText, format: row.format, hypothesis } });
+});
+
+/* ------------------------------------------------------------------ */
+/* X6 — insights (docs/spec/x-series.md, X6)                           */
+/* ------------------------------------------------------------------ */
+/**
+ * Owner + marketing. The report is produced by the insights agent
+ * (packages/agents/analyst/src/insights.ts) — numbers in code, wording by
+ * the LLM — and stored whole in insight_runs. Both triggers run the SAME
+ * entrypoint, apps/orchestrator/dist/insights.js (it dispatches through the
+ * orchestrator, so agent_logs gets its row, and posts the Slack summary):
+ * the nightly run is chained by sync.ts; the manual button here spawns it
+ * as a child process. Child process on purpose — apps/api stays free of the
+ * orchestrator/integrations dependency tree, and one entrypoint means one
+ * code path. Tag approval is the ONLY path from a proposal to
+ * content.hypothesis (locked: suggest-only).
+ */
+const INSIGHTS_SCRIPT = './apps/orchestrator/dist/insights.js'; // CWD = repo root on Railway
+let insightsRunning = false;
+
+app.get('/api/insights/latest', requireRole('owner', 'marketing'), async (c) => {
+  const [run, proposals, content] = await Promise.all([memory.insightRuns.latest(), memory.hypothesisSuggestions.all(), memory.content.all()]);
+  const titles = Object.fromEntries(content.filter((r) => r.id !== undefined).map((r) => [r.id as string, { title: r.title, platform: r.platform, platformVideoId: r.platformVideoId }]));
+  return c.json({ run, proposals, videos: titles, running: insightsRunning });
+});
+
+app.get('/api/insights/runs', requireRole('owner', 'marketing'), async (c) => c.json(await memory.insightRuns.recent(20)));
+
+app.post('/api/insights/run', requireRole('owner', 'marketing'), async (c) => {
+  const auth = c.get('auth');
+  if (auth === null) return c.json({ error: 'unauthorized' }, 401);
+  if (insightsRunning) return c.json({ error: 'already_running' }, 409);
+  if (!existsSync(INSIGHTS_SCRIPT)) return c.json({ error: 'insights_not_built', message: `${INSIGHTS_SCRIPT} missing — run pnpm build` }, 500);
+  insightsRunning = true;
+  const before = await memory.insightRuns.latest();
+  const exit = await new Promise<number | null>((resolve) => {
+    const child = spawn(process.execPath, [INSIGHTS_SCRIPT, '--trigger', 'manual', '--by', auth.email], { stdio: 'inherit' });
+    const timer = setTimeout(() => child.kill(), 10 * 60 * 1000);
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  }).finally(() => {
+    insightsRunning = false;
+  });
+  const after = await memory.insightRuns.latest();
+  const stored = after !== null && after.id !== before?.id ? after : null;
+  if (exit !== 0 || stored === null) {
+    logger.error(`insights manual run by ${auth.email} failed (exit ${exit ?? 'null'})`);
+    return c.json({ error: 'run_failed', message: 'Insights run did not complete — check the Run log / Railway logs.' }, 500);
+  }
+  logger.info(`insights manual run ${stored.id} (${stored.status}) by ${auth.email}`);
+  return c.json({ ok: true, insightRunId: stored.id, status: stored.status, tagProposals: Number((stored.report as { tagProposals?: unknown }).tagProposals ?? 0) });
+});
+
+const DecideBodySchema = z.object({ status: z.enum(['approved', 'rejected']) });
+
+/** Approve → content.hypothesis = tag. Reject → nothing written. Either way the proposal is closed. */
+app.post('/api/insights/tags/:id', requireRole('owner', 'marketing'), async (c) => {
+  const auth = c.get('auth');
+  if (auth === null) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = DecideBodySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "body must be { status: 'approved' | 'rejected' }" }, 400);
+  const id = c.req.param('id');
+  const proposal = await memory.hypothesisSuggestions.byId(id);
+  if (proposal === null) return c.json({ error: 'not_found' }, 404);
+  if (proposal.status !== 'suggested') return c.json({ error: 'already_decided', status: proposal.status }, 409);
+  await memory.hypothesisSuggestions.decide(id, parsed.data.status, auth.email);
+  if (parsed.data.status === 'approved') await memory.content.setHypothesis(proposal.contentId, proposal.tag);
+  logger.info(`hypothesis tag ${proposal.tag} ${parsed.data.status} for ${proposal.contentId} by ${auth.email}`);
+  return c.json({ ok: true, id, status: parsed.data.status, hypothesis: parsed.data.status === 'approved' ? proposal.tag : null });
 });
 
 /** Revenue-adjacent (enrollment counts): owner only — locked, no marketing view of this route. */
