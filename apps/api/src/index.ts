@@ -692,6 +692,120 @@ app.get('/api/kpis/monthly', requireRole('owner'), async (c) => {
   return c.json(rows);
 });
 
+/* ------------------------------------------------------------------ */
+/* X3 — KPI view, rebuilt (docs/spec/x-series.md, X3)                  */
+/* ------------------------------------------------------------------ */
+/**
+ * /api/kpis and /api/kpis/monthly above are untouched (locked). Two additions:
+ *
+ *  - GET /api/kpis/coverage — KPI 3 ("4 videos/week") re-derived from
+ *    content_analysis rows, bucketed by the video's posted week. NOT from
+ *    content.hypothesis: that column is a side-effect of the form and already
+ *    drifts from it (50 analysed vs 49 tagged on 2026-09-10). Owner +
+ *    marketing — no dollars and no enrollment counts in this payload.
+ *
+ *  - GET /api/kpis/portal — the real student picture, handed over by the
+ *    portal's dash-counts Edge Function (numbers only, never a name or id).
+ *    The two databases never touch: we mint a 60-second HS256 bearer with the
+ *    shared DASH_TOKEN_SECRET (iss=analyst-dash aud=fwj-portal typ=counts) and
+ *    call it over HTTPS. Owner only — it sits beside revenue on the same
+ *    panel. Marketing enrollment counts, if ever wanted, are a SEPARATE route
+ *    (locked 2026-09-10), never a filter on this one.
+ */
+const COVERAGE_WEEKLY_GOAL = 4;
+const COVERAGE_DEFAULT_WEEKS = 12;
+const PORTAL_COUNTS_CACHE_MS = 5 * 60 * 1000;
+const PORTAL_COUNTS_TOKEN_TTL_SECONDS = 60;
+/** e.g. https://<ref>.supabase.co/functions/v1 — the portal project's Edge Function base. */
+const portalFunctionsUrl = process.env['PORTAL_FUNCTIONS_URL'];
+
+/** Monday (UTC) of the week containing the timestamp, as YYYY-MM-DD. */
+function weekStartOf(iso: string): string {
+  const d = new Date(iso);
+  const day = d.getUTCDay(); // 0 = Sunday
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+interface CoverageBucket {
+  posted: number;
+  analysed: number;
+  byPlatform: Record<string, { posted: number; analysed: number }>;
+}
+
+app.get('/api/kpis/coverage', requireRole('owner', 'marketing'), async (c) => {
+  const weeksParam = Number(c.req.query('weeks') ?? String(COVERAGE_DEFAULT_WEEKS));
+  const weeks = Number.isFinite(weeksParam) && weeksParam > 0 && weeksParam <= 52 ? Math.floor(weeksParam) : COVERAGE_DEFAULT_WEEKS;
+  const [content, analyses] = await Promise.all([memory.content.all(), memory.contentAnalysis.all()]);
+  const analysedIds = new Set(analyses.map((a) => a.contentId));
+
+  // Seed every week in the window so a quiet week reads 0, not "missing".
+  const buckets = new Map<string, CoverageBucket>();
+  const thisWeek = weekStartOf(new Date().toISOString());
+  for (let i = 0; i < weeks; i++) {
+    const d = new Date(`${thisWeek}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 7 * i);
+    buckets.set(d.toISOString().slice(0, 10), { posted: 0, analysed: 0, byPlatform: {} });
+  }
+  let analysedAllTime = 0;
+  for (const r of content) {
+    if (r.id === undefined) continue;
+    const isAnalysed = analysedIds.has(r.id);
+    if (isAnalysed) analysedAllTime += 1;
+    const bucket = buckets.get(weekStartOf(r.postedAt));
+    if (bucket === undefined) continue;
+    const perPlatform = bucket.byPlatform[r.platform] ?? { posted: 0, analysed: 0 };
+    bucket.byPlatform[r.platform] = perPlatform;
+    bucket.posted += 1;
+    perPlatform.posted += 1;
+    if (isAnalysed) {
+      bucket.analysed += 1;
+      perPlatform.analysed += 1;
+    }
+  }
+  const rows = [...buckets.entries()]
+    .map(([weekStart, b]) => ({ weekStart, ...b, goalMet: b.analysed >= COVERAGE_WEEKLY_GOAL }))
+    .sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+  return c.json({
+    goalPerWeek: COVERAGE_WEEKLY_GOAL,
+    basis: 'content_analysis rows, bucketed by the week the video was posted (Monday start, UTC)',
+    totals: { videos: content.filter((r) => r.id !== undefined).length, analysed: analysedAllTime },
+    weeks: rows,
+  });
+});
+
+let portalCountsCache: { at: number; body: Record<string, unknown> } | null = null;
+
+app.get('/api/kpis/portal', requireRole('owner'), async (c) => {
+  if (portalFunctionsUrl === undefined || portalFunctionsUrl.trim() === '' || !tokenSecretOk || tokenSecret === undefined) {
+    return c.json({ configured: false, reason: 'PORTAL_FUNCTIONS_URL or DASH_TOKEN_SECRET not set on this host' });
+  }
+  const refresh = c.req.query('refresh') === '1';
+  if (!refresh && portalCountsCache !== null && Date.now() - portalCountsCache.at < PORTAL_COUNTS_CACHE_MS) {
+    return c.json({ configured: true, cached: true, ...portalCountsCache.body });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const bearer = await sign(
+    { iss: 'analyst-dash', aud: 'fwj-portal', typ: 'counts', iat: now - 5, exp: now + PORTAL_COUNTS_TOKEN_TTL_SECONDS },
+    tokenSecret,
+    'HS256'
+  );
+  const url = `${portalFunctionsUrl.replace(/\/+$/, '')}/dash-counts`;
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` } });
+    if (!response.ok) {
+      logger.warn(`portal dash-counts → ${response.status}`);
+      return c.json({ configured: true, error: 'portal_unavailable', status: response.status }, 502);
+    }
+    const body = (await response.json()) as Record<string, unknown>;
+    portalCountsCache = { at: Date.now(), body };
+    return c.json({ configured: true, cached: false, ...body });
+  } catch (error) {
+    logger.warn(`portal dash-counts unreachable: ${error instanceof Error ? error.name : 'error'}`);
+    return c.json({ configured: true, error: 'portal_unreachable' }, 502);
+  }
+});
+
 /** Engineering debug view — owner only (locked: marketing gets no Run log). */
 app.get('/api/logs', requireRole('owner'), async (c) => {
   const store = await import('@platform/memory').then((m) => m.createLogStore());

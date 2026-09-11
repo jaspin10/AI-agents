@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0, X1, X2, and X6 are done — see below. Not built: X3, X4, X5, X7–X9.
+X0, X1, X2, X3, and X6 are done — see below. Not built: X4, X5, X7–X9.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -42,8 +42,8 @@ X0, X1, X2, and X6 are done — see below. Not built: X3, X4, X5, X7–X9.
 - The interim HTTP Basic fallback (`/auth/basic`, `DASH_USER`/`DASH_PASSWORD`) that bridged the switchover has been removed entirely — deleted from the code, and the credentials unset on Railway. There is no code path left that checks a password.
 
 **Route → role (enforced in `apps/api`, mirrored in `apps/dash/App.tsx`):**
-- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`, `/api/analysis/*` (X1), `/api/metrics` (X2)
-- owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/logs`
+- owner, marketing: `/api/me`, `/api/suggestions`, `POST /api/suggestions/:id/status`, `/api/content-performance`, `/api/analysis/*` (X1), `/api/metrics` (X2), `/api/insights/*` (X6), `/api/kpis/coverage` (X3 — no dollars, no enrollments)
+- owner only: `/api/kpis`, `/api/kpis/monthly`, `/api/kpis/portal` (X3), `/api/logs`
 
 **Role permissions (locked, mechanism-independent):**
 - `owner` — everything.
@@ -135,6 +135,18 @@ Other X3 scope:
 - Redesign from scratch; the backend routes `/api/kpis` and `/api/kpis/monthly` still exist untouched.
 - Revenue visible to `owner` only. If marketing needs enrollment counts without dollar figures, that is a separate endpoint — never a filtered view of the revenue one.
 - KPI 3 ("4 videos/week hypothesis-tagged") was previously blocked on the dropped taxonomy work. It is now measurable off X1's output instead — re-derive the metric from `content_analysis` coverage rather than the old CSV.
+
+**X3 shipped 2026-09-11 (PR `x3-kpi-view`).** Locked sub-decisions, one at a time with Jas:
+- **KPI 3 source:** a tiny new read-only route `GET /api/kpis/coverage` (owner + marketing) — per posted week (Monday start, UTC): videos posted vs videos with a `content_analysis` row, per platform, against the 4/week goal. Not client-side from `/api/analysis`, not by editing `/api/kpis/monthly`. `content.hypothesis` is NOT the source — it already drifts (50 analysed vs 49 tagged on 2026-09-10).
+- **Marketing enrollment counts:** not built. The KPI tab stays owner-only (App.tsx already hides it). Revisit later; if built it is its own route.
+- **No stated baseline line.** Jas's "~60/month" was never drawn — the portal has the real number, so a flat guess would mislead.
+- **The portal supplies the real picture (scope grew here, 2026-09-11, Jas).** `GET /api/kpis/portal` (owner only) mints a 60-second HS256 bearer with the shared `DASH_TOKEN_SECRET` (`iss=analyst-dash aud=fwj-portal typ=counts`) and calls the portal's `dash-counts` Edge Function over HTTPS. The two Supabase projects never touch — the portal hands over numbers only (no names, emails, ids). Cached 5 min server-side; `?refresh=1` bypasses. New env on the analyst-dash Railway service: `PORTAL_FUNCTIONS_URL` (`https://<portal-ref>.supabase.co/functions/v1`). Until it is set the panel says "not connected" instead of failing.
+- **What the portal returns, from `2026-09` onward only (earlier months ignored — Jas):** per month → per `profiles.level` (whatever values exist; L1.5 is already allowed by `profiles_level_check` and appears the moment a student is set to it — no dash change) → `new`, `renewed`, `bySource` (`stripe` / `manual` / `interac` / `legacy` / `unknown`), `legacy` count. Month key = `plan_start`, else `start_date`.
+- **Renewals:** the portal only ever held the CURRENT plan, so renewals were never recorded. Portal-side fix: `plan_history` table + trigger on `profiles` (level / plan_start / plan_end changes) — applied 2026-09-11. Months on/after the first history row are `renewalsMode: 'exact'` (a plan that re-started = renewal at the new level); earlier months are `'estimated'` (account created in an earlier month than its plan started). Each month is badged with which. Portal-side detail lives in the portal repo, `docs/spec/access-control-enrollment.md` → "Student counts → analyst dash (X3)"; portal PR #13.
+- **The view (`apps/dash/src/Kpis.tsx`, owner only):** three cards. (1) "Enrollments we can see (Stripe)" — the heading carries an amber "incomplete — Stripe only" badge; 12 months; Stripe count, "revenue we can see (Stripe)", the portal count for the same month, and a gap bar (portal − Stripe, red at ≥50% missing). Months before Sept 2026 read "not tracked before Sept 2026". The gap bar is the B2 finder. (2) "Students in the portal" — per month, per level, new / renewed / students, paid-by breakdown, exact/estimated badge, Refresh. (3) "Videos analysed per week" — KPI 3, red "N short" / green "on goal" per week. The word "total" does not appear on the panel.
+- `/api/kpis` and `/api/kpis/monthly` untouched. Nothing on this panel restores the erased revenue table.
+
+**B2 path (not done, now concrete):** the gap column names the months; the portal's `bySource` says how the missing ones paid. Next step is a portal-side "manual link" or import so those months close — see Track B.
 
 ### X4 — TikTok Business API migration
 **Why after X2:** unlocks real TikTok watch time, which every metric in X2 currently has to skip. Placed here rather than earlier because it needs external approval that can't be rushed.
@@ -247,7 +259,7 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - **Stripe enrollment counts are a floor, not a total** — see B2.
 - `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**. As of X0 the dash no longer reads it at all — writes go through the session cookie.
 - `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
-- KPI tab content was erased 2026-09-10 pending X3. Backend routes untouched.
+- KPI tab was erased 2026-09-10 and rebuilt by X3 on 2026-09-11. `/api/kpis` and `/api/kpis/monthly` untouched throughout.
 - Analyst Supabase project (`kmgltqfwtyhswqxjicab`) still authenticates with the legacy `eyJ` service role key — see B4.
 
 ## Not in scope
