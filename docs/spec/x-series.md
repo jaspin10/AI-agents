@@ -12,7 +12,7 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 Built and live: the analyst pipeline (TikTok + YouTube + Stripe sync, nightly at 07:00 UTC), the suggestions agent with its two unskippable safety checks, Slack delivery, and the hosted dashboard at `analyst-dash-production.up.railway.app`.
 
-X0, X1, and X2 are done — see below. Not built: X3 onward.
+X0, X1, X2, and X6 are done — see below. Not built: X3, X4, X5, X7–X9.
 
 **X0 shipped 2026-09-10.** Nobody needs a password for this dashboard anymore; access is entirely through the portal.
 
@@ -155,6 +155,23 @@ Other X3 scope:
 
 ### X6 — Agent correlation + the closed loop
 **Depends on X1 having real volume — roughly 50 analysed videos. Can start before X4/X5.**
+
+**Status 2026-09-10: SHIPPED.** Threshold verified against the DB before starting (`select count(*) from content_analysis` = 50: 43 TikTok, 7 YouTube, 0 Shorts; 0 ref pairs, 0 ad runs, 3 snapshot dates). Migration 0011 applied to the analyst project via MCP before merge. All sub-decisions below locked one at a time before any code.
+- Built: `packages/shared/src/correlation.ts` (pure, node:test — `pnpm --filter @platform/shared test` now runs 14 cases) · `insights` agent in `packages/agents/analyst/src/insights.ts` (capability `analysis.insights`, no tools) · `apps/orchestrator/dist/insights.js` cron entrypoint (`pnpm insights`) · `GET /api/insights/latest`, `GET /api/insights/runs`, `POST /api/insights/run`, `POST /api/insights/tags/:id` (owner + marketing) · `Insights` panel third in the dash nav · Idea map shows X6 edges on a selected suggestion · Slack summary via `postSlackText` in `@platform/shared`.
+- Score = engagement rate from X2's `rates()` (imported, not reimplemented). Videos under 100 views are unscored.
+- Tables (0011): `insight_runs` (one row per run, whole report as jsonb, caution included) and `hypothesis_suggestions` (one row per content_id + tag, status suggested/approved/rejected).
+- First-run reality: with 0 pairs every claim is pooled and the caution says so; YouTube has 7 scored videos → "not enough videos"; TikTok claims come only from groups of 8+ (Talking head, idea source Jas, CTA none/comment). That is correct, not a gap.
+- **Still to verify live:** the first chained nightly run (sync → insights) in the `nightly-sync` Railway logs, and a manual run from the dash by Jas.
+
+**Sub-decisions locked 2026-09-10 (Jas):**
+- **Runs nightly + manual.** Nightly is *chained*: `sync.ts` spawns `apps/orchestrator/dist/insights.js --trigger cron` as a child process at the end of every real sync on the existing `nightly-sync` service — no new Railway service, no dependency cycle, and an insights failure never changes sync's exit code. `--dry-run` and `--no-insights` skip it. Manual = "Run insights now" button on the Insights panel — `apps/api` spawns the *same* entrypoint (`--trigger manual --by <email>`), one at a time (409 while a run is in flight). One entrypoint, one code path; `apps/api` gains no orchestrator/integrations dependency.
+- **Program counts, AI writes the words.** Every number is computed in `correlation.ts`; the LLM gets the finished report and is instructed it may not introduce, round, or estimate a figure. Second LLM call proposes hypothesis tags from the descriptions. No key / cap reached → the run still stores a `numbers_only` report (narrative null, no tag proposals) instead of failing.
+- **Minimum 8 scored videos per group** (and per platform) before a claim is made. Smaller groups are listed as "not enough videos", never as a pattern. Group median vs platform median, ±20% relative is the call-out line.
+- **Both surfaces:** Insights panel (owner + marketing) and a Slack summary. The Slack text is generated from the same payload and always ends with the caution.
+- **Tags are suggest-only.** `hypothesis_suggestions` holds proposals; Approve in the dash is the only path that writes `content.hypothesis` (and writes only that column). Reject closes the proposal; a later run re-proposing the same tag is a no-op.
+- **Score = engagement rate only** (likes+comments+shares+saves ÷ views). One score, not three.
+- **Suggestion → outcome is automatic.** Candidates are videos Eknoor tagged `idea_source = AI agent`, posted after the suggestion, matching its hypothesis tag or format. Source videos = same hypothesis tag, posted before. Every edge carries `matching: 'auto'` — nobody confirms these; no manual picker.
+- **B2 flag:** `B2_ENROLLMENT_RECONCILED=1` in the env turns off the "denominator incomplete" caution line. Unset (today) = the line is emitted.
 
 - New agent task: read `content_analysis` + performance + X2's derived metrics, output what works and what doesn't, with the evidence for each claim.
 - **Required, locked 2026-09-10 (Jas): break results down by platform, not just overall.** "What works" must be answerable as "what works on TikTok" and "what works on YouTube" separately, not one blended answer — the same format or idea source can perform differently per platform, and a pooled number hides that. `platform` is already a field on every row X6 reads (X1 built it platform-agnostic for exactly this), so this is a grouping requirement on the agent's own output, not new plumbing. **The X1 cross-platform ref pairs (migration 0006) are the strongest evidence for this** — when the same video exists as a TikTok/YouTube (and later Instagram) pair, X6 can compare identical content across platforms directly, hook/format/idea_source held constant, platform the only thing that varies. Claims drawn from a pair are stronger evidence than claims pooled across unrelated videos, and X6 should say so explicitly when it has a pair to point to.
