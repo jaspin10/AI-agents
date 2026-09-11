@@ -25,6 +25,8 @@ Separate project from the French With Jas portal. Different repo, different stac
 - Commit + push after every confirmed "done" — an M2→M5 code-loss incident here made this a hard rule.
 - `performance.content_id` holds platform-native video ids (the upsert key), not content UUIDs. As of X2 (migration 0009) `performance.content_uuid` is the real FK, filled by trigger on insert — **join on `content_uuid`**, never on `content_id`. Never send `content_uuid: null` in an upsert.
 - Derived metrics live in `packages/shared/src/metrics.ts` as pure functions with node:test cases (`pnpm --filter @platform/shared test`). The before/after-ad split is a TIME split, not paid/organic — its label is a field on the payload; never strip it.
+- X6 correlation lives in `packages/shared/src/correlation.ts` (pure, tested). The LLM only words the numbers — never let it compute one. Results are per platform, never blended; groups under 8 scored videos are "not enough videos", not claims; the standing caution is part of the report payload — never strip it. Hypothesis tag proposals are suggest-only: `content.hypothesis` is written only by the approve route.
+- `sync.ts` chains `apps/orchestrator/dist/insights.js` at the end of every real run (child process). Keep it a child process — `integrations` must not import `orchestrator` (cycle).
 - No publish tool exists anywhere in this codebase — hard guardrail, the agent never publishes content directly.
 - `agent_logs` gets a row for every orchestrator call; unauthorized tool calls are rejected at the router level, not just logged.
 - Two unskippable in-code LLM checks (banned topics + brand voice) gate every suggestion before it surfaces, rejected candidates persisted too.
