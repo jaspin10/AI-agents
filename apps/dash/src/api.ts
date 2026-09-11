@@ -265,3 +265,114 @@ export interface MetricsPayload {
 export function getMetrics(): Promise<MetricsPayload> {
   return getJson<MetricsPayload>('/api/metrics');
 }
+
+/* ---------------- X6 — insights ---------------- */
+
+export interface InsightClaim {
+  platform: string;
+  dimension: 'format' | 'idea_source' | 'cta_type' | 'has_model' | 'hypothesis';
+  value: string;
+  n: number;
+  medianEngagementPct: number;
+  platformMedianPct: number;
+  relativeDelta: number;
+  direction: 'works' | 'doesnt' | 'neutral';
+  strength: 'pooled';
+  evidence: { videoIds: string[]; adBoostedCount: number; adUnknownCount: number };
+}
+
+export interface InsightPlatformReport {
+  platform: string;
+  analysedVideos: number;
+  scoredVideos: number;
+  platformMedianPct: number | null;
+  enoughData: boolean;
+  claims: InsightClaim[];
+  skipped: Array<{ platform: string; dimension: string; value: string; n: number; reason: string }>;
+}
+
+export interface InsightPair {
+  strength: 'pair';
+  heldConstant: { format: string | null; ideaSource: string | null; hypothesis: string | null };
+  sides: Array<{ contentId: string; platform: string; title: string | null; engagementRatePct: number | null; views: number | null; adBoosted: boolean | null }>;
+  winner: string | null;
+  adConfounded: boolean;
+}
+
+export interface IdeaEdge {
+  suggestionId: string;
+  suggestionTheme: string | null;
+  suggestionStatus: string;
+  suggestionHypothesis: string | null;
+  suggestionFormat: string | null;
+  sourceVideoIds: string[];
+  outcomes: Array<{
+    contentId: string;
+    platform: string;
+    title: string | null;
+    engagementRatePct: number | null;
+    platformMedianPct: number | null;
+    verdict: 'above_median' | 'below_median' | 'unscored';
+    matchedOn: 'hypothesis' | 'format';
+  }>;
+  matching: 'auto';
+}
+
+export interface InsightsReport {
+  generatedAt: string;
+  totals: { videos: number; analysed: number; scored: number; pairs: number; adRuns: number };
+  perPlatform: InsightPlatformReport[];
+  pairs: InsightPair[];
+  edges: IdeaEdge[];
+  /** Standing caution — always present, always rendered. */
+  caution: string[];
+  method: string;
+  narrative: { overall: string; perPlatform: Array<{ platform: string; summary: string }> } | null;
+  llm: { status: 'ok' } | { status: 'skipped'; reason: string };
+  tagProposals: number;
+}
+
+export interface InsightRun {
+  id: string;
+  runId: string;
+  trigger: 'cron' | 'manual';
+  triggeredBy: string;
+  status: 'ok' | 'numbers_only';
+  videoCount: number;
+  analysedCount: number;
+  report: InsightsReport;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: string;
+}
+
+export interface HypothesisProposal {
+  id: string;
+  runId: string;
+  contentId: string;
+  tag: string;
+  rationale: string | null;
+  status: 'suggested' | 'approved' | 'rejected';
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface InsightsPayload {
+  run: InsightRun | null;
+  proposals: HypothesisProposal[];
+  videos: Record<string, { title: string | null; platform: string; platformVideoId: string }>;
+  running: boolean;
+}
+
+export function getInsights(): Promise<InsightsPayload> {
+  return getJson<InsightsPayload>('/api/insights/latest');
+}
+
+export function runInsights(): Promise<{ ok: true; insightRunId: string; status: string; tagProposals: number }> {
+  return sendJson('POST', '/api/insights/run', {});
+}
+
+export function decideTag(id: string, status: 'approved' | 'rejected'): Promise<{ ok: true; hypothesis: string | null }> {
+  return sendJson('POST', `/api/insights/tags/${id}`, { status });
+}
