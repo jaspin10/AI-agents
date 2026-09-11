@@ -4,7 +4,6 @@ import {
   ContractViolationError,
   NextVideoSuggestionSchema,
   NextVideoTaskPayloadSchema,
-  PlatformError,
   createLlmClient,
   type AgentContext,
   type AgentContract,
@@ -18,34 +17,14 @@ import { z } from 'zod';
 import { analyse } from './analysis.js';
 import { buildGenerationSystemPrompt, buildGenerationUserPrompt } from './prompts.js';
 import { runBannedTopicsCheck, runBrandVoiceCheck } from './checks.js';
+import { LlmCapExceededError, readMonthlyCap } from './cap.js';
+
+export { LlmCapExceededError, readMonthlyCap } from './cap.js';
+export { INSIGHTS_AGENT_NAME, insightsAgent, formatInsightsSlack, type InsightsOutput, type InsightsReport } from './insights.js';
 
 export const ANALYST_AGENT_NAME = 'analyst';
 
 const MAX_RETRIES = 2;
-
-/** §6 hard spend cap: refused runs carry this stable code in agent_logs. */
-export class LlmCapExceededError extends PlatformError {
-  constructor(used: number, cap: number, month: string) {
-    super(
-      'LLM_CAP_EXCEEDED',
-      `LLM monthly cap reached for ${month}: ${used} tokens used, cap is ${cap} (LLM_MONTHLY_CAP). ` +
-        'Run refused. Raise the cap or wait for the next month.'
-    );
-  }
-}
-
-/** Total tokens (input+output) allowed per UTC month. Unset/empty = no cap. */
-function readMonthlyCap(): number | null {
-  const raw = process.env['LLM_MONTHLY_CAP'];
-  if (raw === undefined || raw.trim() === '') return null;
-  const cap = Number(raw);
-  if (!Number.isFinite(cap) || cap <= 0) {
-    throw new ContractViolationError(
-      `LLM_MONTHLY_CAP must be a positive number of tokens, got '${raw}'.`
-    );
-  }
-  return cap;
-}
 
 /** Shape the LLM must return from generation. */
 const GenerationSchema = z.object({

@@ -18,3 +18,5 @@ export * from './llm.js';
 export * from './embeddings.js';
 export * from './schemas/suggestion-row.js';
 export * from './metrics.js';
+export * from './correlation.js';
+export * from './slack.js';

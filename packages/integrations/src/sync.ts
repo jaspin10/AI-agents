@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createLogger } from '@platform/shared';
 import type {
   ContentRow,
@@ -305,7 +307,27 @@ async function main(): Promise<boolean> {
     console.log(`FAILED: ${failures.map((f) => f.platform).join(', ')}`);
   }
 
+  // X6 (locked 2026-09-10): the insights agent runs at the END of every real
+  // sync, on this same nightly-sync service — no separate cron. It runs in a
+  // child process so a dependency cycle (integrations → orchestrator →
+  // integrations) never exists and an insights failure can't take the sync
+  // result with it: sync's exit code is sync's alone. Skipped on --dry-run and
+  // when --no-insights is passed.
+  if (!options.dryRun && !process.argv.includes('--no-insights')) runInsights();
+
   return failures.length === 0;
+}
+
+function runInsights(): void {
+  const script = 'apps/orchestrator/dist/insights.js'; // CWD is the repo root on Railway (CLAUDE.md)
+  if (!existsSync(script)) {
+    logger.warn(`insights: ${script} not built — skipping (run pnpm build)`);
+    return;
+  }
+  logger.info('insights: starting X6 agent (chained after sync)');
+  const child = spawnSync(process.execPath, [script, '--trigger', 'cron'], { stdio: 'inherit', timeout: 10 * 60 * 1000 });
+  if (child.status === 0) logger.info('insights: done');
+  else logger.error(`insights: exited ${child.status ?? 'null'}${child.error !== undefined ? ` (${child.error.message})` : ''} — sync result unaffected`);
 }
 
 // Explicit process.exit is required, not just process.exitCode: open Supabase
