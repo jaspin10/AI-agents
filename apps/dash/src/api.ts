@@ -376,3 +376,69 @@ export function runInsights(): Promise<{ ok: true; insightRunId: string; status:
 export function decideTag(id: string, status: 'approved' | 'rejected'): Promise<{ ok: true; hypothesis: string | null }> {
   return sendJson('POST', `/api/insights/tags/${id}`, { status });
 }
+
+/* ---------------- X3 — KPI view, rebuilt ---------------- */
+
+/** KPI 3 from content_analysis coverage, by the video's posted week. No dollars, no enrollments. */
+export interface CoverageWeek {
+  weekStart: string;
+  posted: number;
+  analysed: number;
+  byPlatform: Record<string, { posted: number; analysed: number }>;
+  goalMet: boolean;
+}
+
+export interface CoveragePayload {
+  goalPerWeek: number;
+  basis: string;
+  totals: { videos: number; analysed: number };
+  weeks: CoverageWeek[];
+}
+
+export function getCoverage(weeks = 12): Promise<CoveragePayload> {
+  return getJson<CoveragePayload>(`/api/kpis/coverage?weeks=${weeks}`);
+}
+
+/** One level's slice of a month, as handed over by the portal's dash-counts function. */
+export interface PortalLevelBucket {
+  new: number;
+  renewed: number;
+  bySource: Record<string, number>;
+  legacy: number;
+}
+
+export interface PortalMonth {
+  month: string;
+  /** exact = from plan_history; estimated = "account older than its plan" heuristic. */
+  renewalsMode: 'exact' | 'estimated';
+  byLevel: Record<string, PortalLevelBucket>;
+  total: PortalLevelBucket;
+}
+
+export type PortalCountsPayload =
+  | { configured: false; reason: string }
+  | { configured: true; error: string; status?: number }
+  | {
+      configured: true;
+      cached: boolean;
+      generatedAt: string;
+      from: string;
+      levels: string[];
+      renewalsExactSince: string | null;
+      months: PortalMonth[];
+    };
+
+/** 502 from the API means the portal side is down/not deployed — that is a state to render, not an exception. */
+export async function getPortalCounts(refresh = false): Promise<PortalCountsPayload> {
+  const path = `/api/kpis/portal${refresh ? '?refresh=1' : ''}`;
+  const response = await fetch(path);
+  if (response.status === 401) bounceToPortal();
+  if (response.status === 403) throw new Error('Your portal role cannot open this.');
+  if (response.status === 502) return (await response.json()) as PortalCountsPayload;
+  if (!response.ok) throw new Error(`${path} → ${response.status}`);
+  return (await response.json()) as PortalCountsPayload;
+}
+
+export function getMonthlyKpis(months = 12): Promise<MonthlyKpis[]> {
+  return getJson<MonthlyKpis[]>(`/api/kpis/monthly?months=${months}`);
+}
