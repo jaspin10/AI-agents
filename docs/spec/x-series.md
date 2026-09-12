@@ -8,6 +8,8 @@ Milestones are prefixed X to keep them apart from the historical M-series (M1–
 
 **Track B renamed 2026-09-11:** Track B items are now `X-B1`..`X-B5` (was `B1`..`B4`), so they never collide with the portal's Y-B# items. Open decisions live as `D#` in the decisions list.
 
+**Decisions D16–D20 answered 2026-09-12** — see X7, X-B1, X-B2, X-B4, X-B5 below.
+
 ---
 
 ## Where things actually stand
@@ -50,7 +52,7 @@ X0, X1, X2, X3, and X6 are done — see below. Not built: X4, X5, X7–X9.
 **Role permissions (locked, mechanism-independent):**
 - `owner` — everything.
 - `marketing` — Analysis, Suggestions, Idea map, Performance, Metrics. **No revenue anywhere.** No Run log.
-- `salesman` — nothing on this dash yet; revisit at X7.
+- `salesman` — nothing on this dash yet. **Changes at X7: per D16 the sales side becomes a slice of THIS dash, so `salesman` gains its own panel set there.**
 
 **Verification record (2026-09-10):**
 - `dash-token` invocation log: two `503 not_configured` at 14:22 UTC (secrets not yet saved on the Supabase side), then `200` at 14:29 UTC once saved.
@@ -93,12 +95,7 @@ X0, X1, X2, X3, and X6 are done — see below. Not built: X4, X5, X7–X9.
 - **Editable after submit.** Save is an upsert keyed on `content_id`; `analysed_at` refreshes on every save. Ad end dates and spend are usually unknown at first analysis, so write-once would block exactly the fields that arrive late. The `/analysis` list shows an **Analysed / Not yet** badge per video with a filter, so untagged videos are easy to work through.
 - `analysed_by` — **auto-filled from the session** (`/api/me` email). No form field.
 
-**Sequencing note (Jas, 2026-09-10):** Jas would prefer Meta access (X-B1) resolved before Eknoor starts tagging, so she covers all platforms in one pass rather than revisiting videos later. Recorded as a preference, with the trade-off stated plainly so the choice stays deliberate:
-- X-B1's timeline belongs to a third party and may be days, weeks, or never. Gating X1 on it means Eknoor has nothing to do for an unknown period.
-- Even after X-B1 clears, Instagram data does not appear until X9 is **built** — X-B1 is permission, X9 is the integration. Meta app review may add further delay.
-- Tagging is per-video and incremental, so nothing is wasted by starting with the TikTok/YouTube videos already in hand (count moves daily — see Data reality note below, never verify against a specific number). Instagram videos would simply join the same list later.
-- The platform-agnostic requirement above is what makes waiting unnecessary — it exists precisely so the page doesn't need rework when Instagram arrives.
-- **If X-B1 has not cleared by the time X0 finishes, start X1 anyway.** X0 is done, so this default is now live: start X1.
+**Sequencing note (Jas, 2026-09-10; updated 2026-09-12):** Jas would have preferred Meta access (X-B1) resolved before Eknoor started tagging, so she covered all platforms in one pass. That is now moot — X-B1's contractor problem is resolved (see Track B), and X1 is already shipped and in use. The platform-agnostic requirement above is what makes the sequencing harmless: Instagram videos simply join the same list when X9 is built, with zero X1 rework.
 
 ### X2 — Derived metrics
 **Why third:** pure computation over data that already exists plus X1's fields. No external dependencies, no approvals, nothing can block it.
@@ -131,7 +128,7 @@ This puts a known-incomplete number on screen, which is fine only if the screen 
 - The view must **label the Stripe-visible figure as incomplete on its face** — not in a footnote, not in a tooltip. E-transfer and manual invoices bypass Checkout and are invisible to this system.
 - Show the month-by-month shape, since that is what makes the gap diagnosable — a month that looks right and a month that looks half-missing tell different stories.
 - **Never present the Stripe figure as total enrollments or total revenue** anywhere in the UI, in Slack output, or in agent rationales. It is "enrollments we can see," and the naming should say so.
-- Once X-B2 resolves, revisit whether the manual figures can be entered or imported so the view becomes complete rather than merely honest.
+- **D18 (2026-09-12) changes what "resolved" can ever mean here: there is NO backfill of past months.** Months before M7.12 ships stay permanently short, and the gap bar for them is a fact of history, not a to-do. Only months after the manual tool goes live can be complete.
 
 Other X3 scope:
 - Redesign from scratch; the backend routes `/api/kpis` and `/api/kpis/monthly` still exist untouched.
@@ -148,12 +145,12 @@ Other X3 scope:
 - **The view (`apps/dash/src/Kpis.tsx`, owner only):** three cards. (1) "Enrollments we can see (Stripe)" — the heading carries an amber "incomplete — Stripe only" badge; 12 months; Stripe count, "revenue we can see (Stripe)", the portal count for the same month, and a gap bar (portal − Stripe, red at ≥50% missing). Months before Sept 2026 read "not tracked before Sept 2026". The gap bar is the X-B2 finder. (2) "Students in the portal" — per month, per level, new / renewed / students, paid-by breakdown, exact/estimated badge, Refresh. (3) "Videos analysed per week" — KPI 3, red "N short" / green "on goal" per week. The word "total" does not appear on the panel.
 - `/api/kpis` and `/api/kpis/monthly` untouched. Nothing on this panel restores the erased revenue table.
 
-**X-B2 path (not done, now concrete):** the gap column names the months; the portal's `bySource` says how the missing ones paid. Next step is a portal-side "manual link" or import so those months close — see Track B.
+**X-B2 path (updated by D18, 2026-09-12):** the gap column names the months, but past months are **not** being closed. From M7.12 onward Interac/manual enrollments are captured at the source; earlier months stay as they are.
 
 ### X4 — TikTok Business API migration
 **Why after X2:** unlocks real TikTok watch time, which every metric in X2 currently has to skip. Placed here rather than earlier because it needs external approval that can't be rushed.
 
-**Blocked by X-B5** (TikTok Business account + app registration + approval — an external clock, started via decision D20).
+**Blocked by X-B5, and X-B5 has NOT been started — D20, answered 2026-09-12: wait, do not apply yet.** So X4 has no start date at all right now: the clock has not begun. This is deliberate deferral, not an oversight. Revisit X-B5 when TikTok watch time or the paid/organic split actually becomes the blocker on a decision.
 
 - Replace/augment `packages/integrations/src/tiktok/` Display API calls with the Business/Insights API.
 - Unlocks `average_time_watched`, `total_time_watched`, `full_video_watched_rate`, `video_duration`, `reach`, and `impression_sources`.
@@ -162,7 +159,7 @@ Other X3 scope:
 - The "never derive retention" rule stays. This fetches real values; it does not infer them.
 
 ### X5 — Ad analytics
-**Depends on X4.**
+**Depends on X4 — which depends on X-B5, which is deliberately not started (D20).**
 
 - Real paid/organic split from `impression_sources`, replacing X2's time-based approximation.
 - Cost per view and cost per enrollment-in-window, using X1's manual spend entries.
@@ -187,51 +184,56 @@ Other X3 scope:
 - **Tags are suggest-only.** `hypothesis_suggestions` holds proposals; Approve in the dash is the only path that writes `content.hypothesis` (and writes only that column). Reject closes the proposal; a later run re-proposing the same tag is a no-op.
 - **Score = engagement rate only** (likes+comments+shares+saves ÷ views). One score, not three.
 - **Suggestion → outcome is automatic.** Candidates are videos Eknoor tagged `idea_source = AI agent`, posted after the suggestion, matching its hypothesis tag or format. Source videos = same hypothesis tag, posted before. Every edge carries `matching: 'auto'` — nobody confirms these; no manual picker.
-- **X-B2 flag:** `B2_ENROLLMENT_RECONCILED=1` in the env turns off the "denominator incomplete" caution line. Unset (today) = the line is emitted.
+- **X-B2 flag:** `B2_ENROLLMENT_RECONCILED=1` in the env turns off the "denominator incomplete" caution line. **Per D18 there is no backfill, so this flag can never be honestly set for historical months — expect the caution line to keep running. If it is ever set, it must mean "complete from month X onward", and that needs the caution to become month-aware first.**
 
 - New agent task: read `content_analysis` + performance + X2's derived metrics, output what works and what doesn't, with the evidence for each claim.
 - **Required, locked 2026-09-10 (Jas): break results down by platform, not just overall.** "What works" must be answerable as "what works on TikTok" and "what works on YouTube" separately, not one blended answer — the same format or idea source can perform differently per platform, and a pooled number hides that. `platform` is already a field on every row X6 reads (X1 built it platform-agnostic for exactly this), so this is a grouping requirement on the agent's own output, not new plumbing. **The X1 cross-platform ref pairs (migration 0006) are the strongest evidence for this** — when the same video exists as a TikTok/YouTube (and later Instagram) pair, X6 can compare identical content across platforms directly, hook/format/idea_source held constant, platform the only thing that varies. Claims drawn from a pair are stronger evidence than claims pooled across unrelated videos, and X6 should say so explicitly when it has a pair to point to.
 - Auto-suggest `hypothesis` tags from Eknoor's descriptions.
 - **Idea map edges** (carried over from the M4.5 open list): draw suggestion → source videos → outcome, so the map shows whether an idea actually worked. Belongs here — the data to draw those edges is exactly what this milestone produces.
-- **Standing caution:** a couple hundred videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one. If X-B2 is still unresolved, that caution is stronger, not weaker: the enrollment denominator itself is incomplete.
+- **Standing caution:** a couple hundred videos with ad-spend confounds is enough for patterns, not proof. Outputs are hypotheses to test, never conclusions. Anything touching enrollments is time-correlation only — Stripe carries no link to a video, and no amount of analysis creates one. With D18's no-backfill decision, the enrollment denominator for historical months is permanently incomplete — that caution is now standing, not temporary.
 
 ### X7 — Sales analyst / CRM agent (was M6)
-**PENDING DECISION D16.** The shape is not settled: separate product + repo (the CRM/sales agent idea — WhatsApp + Harman's notes) / a slice of the analyst dash sharing its pipeline / drop X7. No default; D16 has to be answered before this milestone's prompt can be written.
+**D16 ANSWERED 2026-09-12: X7 is a SLICE OF THIS DASH.** Not a separate product, not a separate repo, not dropped. It shares the analyst pipeline, the same Railway service, the same Supabase project, and the same X0 portal-login door. Harman reaches it through the portal like everyone else, on the existing `salesman` role.
 
-**Deliberately last of the build work.** Marketing has real data flowing and a person ready to use it; sales has neither yet.
+What that settles, so the X7 chat does not reopen it:
+- No new repo, no new deploy target, no second auth mechanism.
+- `salesman` gains its own panel set in `PANELS_BY_ROLE`, gated server-side in `apps/api` exactly like `marketing` is. **Sales panels do not imply revenue access** — role gating stays route-level, and any dollar figure remains owner-only unless separately decided.
+- The CRM idea (WhatsApp conversations + Harman's call notes) lands as data sources feeding this slice, not as a standalone CRM product.
 
-- Sales-side equivalent of the analyst agent.
-- Decide at that point whether Harman gets a slice of this dash or whether sales output lives entirely in the portal's Offers tab. Currently open, currently blocking nothing.
+Still open for the X7 chat itself, when it runs: what the sales agent actually reads (WhatsApp export shape, note format), what it outputs, and whether any of it belongs in the portal's Offers tab instead of here.
+
+**Still deliberately late in the build order.** Marketing has real data flowing and a person ready to use it; sales has neither yet. D16 settles the shape, not the timing.
 
 ### X8 — Hardening (was M7)
 - Loop hardening, error handling, whatever the previous milestones surfaced.
 - Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
 
 ### X9 — Instagram + Facebook
-**Blocked externally by X-B1, not by us.**
+**X-B1's blocker is cleared (2026-09-12) — access is resolved; what remains is Meta itself enabling the metrics, expected around Tue 2026-09-15.**
 
 - Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
-- **X-B1 is permission; X9 is the build.** Clearing X-B1 does not by itself put a single Instagram row in `content` — the integration still has to be written, and Meta app review may add its own delay. Plan for both.
+- **X-B1 is permission; X9 is the build.** Permission landing does not by itself put a single Instagram row in `content` — the integration still has to be written, and Meta app review may add its own delay. Plan for both.
 - Once X9's sync runs, Instagram videos appear on X1's `/analysis` page automatically, because that page is required to be platform-agnostic. No X1 rework.
-- Slots in whenever X-B1 clears, at whatever point that happens to be. If X-B1 resolves early, X9 can jump the queue — nothing in X2–X8 depends on it either way.
+- With the access blocker gone, X9 can be scheduled on its own merits — nothing in X2–X8 depends on it either way.
 
 ---
 
 ## Track B — not code, needs a person
 
-**X-B1 — Instagram access. IN PROGRESS, started alongside X0.** Blocks X9. Decision D17.
+**X-B1 — Instagram access. RESOLVED 2026-09-12 (D17).** The contractor situation is settled — access is in hand. What is left is not a person problem: Meta has to switch the metrics on, expected around **Tue 2026-09-15**. No fallback is needed; the "create a new Facebook Page and re-link Instagram" option is off the table and should not be revived.
 
-The Facebook Page (645259428673564) sits in a business portfolio owned by the website contractor, and is linked to the wrong IG profile. Resolution: the contractor grants portfolio admin or transfers the Page. Env vars already scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended).
+History, kept because it explains the env var shape: the Facebook Page (645259428673564) sat in a business portfolio owned by the website contractor and was linked to the wrong IG profile. Env vars already scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended).
 
-**Also a standing business risk independent of this project** — someone outside the business controls a Page you depend on. Worth resolving on those grounds alone, even if Instagram analytics never happened.
-
-**X-B2 — Enrollment reconciliation. Do this DURING or AFTER X3, not before.** Reordered 2026-09-10 (Jas): reconciling against a number you can't see is guesswork; X3's month-by-month view makes the gap concrete and points at which months to investigate. Decision D18. The portal side is milestone M7.12 (manual enrollment link tool).
+**X-B2 — Enrollment reconciliation. D18 ANSWERED 2026-09-12: capture from now on, NO BACKFILL.**
 
 Stripe shows 15–33 completed enrollments/month against a stated 60/month baseline. E-transfer and manual invoices bypass Checkout entirely, so they are invisible to every number this system produces.
 
-- **Still true before the day-90 review**, regardless of X3's timing — if the review lands first, the gap has to be spoken to whether or not the view exists yet.
-- Until it resolves, every enrollment and revenue figure in this system is a floor, not a total. X3 is required to say so on screen.
-- Resolution likely means deciding how manual payments get recorded going forward, not just counting the past ones.
+The decision:
+- Portal milestone **M7.12** ships a manual enrollment tool. From the day it is live, every Interac / manual enrollment is recorded with `source` in `{interac, manual}` and flows into `dash-counts.bySource` with no dash change.
+- **Past months are NOT backfilled.** They stay short, permanently. The X3 gap bar for those months is history, not a task.
+- M7.12 therefore does **not** need the backfill screen that was originally scoped for it.
+- `B2_ENROLLMENT_RECONCILED=1` should stay unset. It would claim a completeness that does not exist for historical months. If it is ever wanted, the caution has to become month-aware first (complete from month X onward), which is new work, not a flag flip.
+- Consequence to state plainly wherever these numbers are used, including the day-90 review: **enrollment and revenue figures before M7.12 are a floor, forever.**
 
 **X-B3 — Hypothesis taxonomy v2 — DROPPED 2026-09-10 (Jas).** Superseded by X1, which produces a richer version of the same thing from Eknoor's per-video descriptions. Consequences, so nothing is silently lost:
 - `content.hypothesis` stays NULL and `hypothesis-tags.csv` stays header-only **until X1 ships**. Nothing else will fill them.
@@ -239,23 +241,29 @@ Stripe shows 15–33 completed enrollments/month against a stated 60/month basel
 - If the back-catalogue open-coding was already partly done by a team member, that work is now unused. Worth telling them before they spend more time on it.
 - **Do not restart a separate taxonomy effort.** If X1 turns out not to fill this need, reopen this decision explicitly rather than quietly running both.
 
-**X-B4 — Supabase key type. ANSWERED 2026-09-10: still the legacy `eyJ` JWT**, not `sb_secret_`. Checked directly in the Railway `analyst-dash` Variables tab (`SUPABASE_SERVICE_ROLE_KEY`). The StackBlitz-era workaround was never migrated during hosting. Switching to `sb_secret_` is still outstanding — not urgent, but worth doing before it's forgotten entirely. Decision D19; the switch happens inside milestone X-V.
+**X-B4 — Supabase key type. D19 ANSWERED 2026-09-12: switch to `sb_secret_`.**
 
-**X-B5 — TikTok Business API approval. NEW 2026-09-11. Blocks X4 (and therefore X5).**
+The Railway `analyst-dash` service still authenticates with the legacy `eyJ` JWT service-role key (checked in its Variables tab; the StackBlitz-era setup was never migrated). A legacy JWT carries its permissions inside the token and cannot be revoked individually — a leak means rotating the whole project's keys. An `sb_secret_` key is an opaque identifier checked server-side, so a single key can be revoked or rotated on its own, and Supabase is moving everyone that way.
 
-TikTok Business account + app registration + the new OAuth scopes have to be approved by TikTok before X4 can be written. This is an external clock owned by a third party, so it is started early and deliberately: decision D20 = start the application now, regardless of where X4 sits in the queue.
+**The switch happens inside milestone X-V:** Jas creates the new key, X-V swaps the variable and verifies the service boots clean and the nightly sync still writes. Rollback is pasting the old key back.
+
+**X-B5 — TikTok Business API approval. D20 ANSWERED 2026-09-12: DO NOT START YET.**
+
+TikTok Business account + app registration + new OAuth scopes need TikTok's approval before X4 can be written. That approval is an external clock. Jas has chosen to wait rather than start the application now.
+
+Consequence, recorded so it resurfaces instead of quietly dying: **X4 and X5 have no start date** — the clock has not begun, and waiting does not shorten it. Nothing else in the X-series is blocked. Revisit when real TikTok watch time or a true paid/organic split becomes the thing standing between you and a decision.
 
 ---
 
-## Scope decisions (locked 2026-09-09/10)
+## Scope decisions (locked 2026-09-09/10, plus D16–D20 on 2026-09-12)
 
 - Platforms live today: **TikTok, YouTube, YouTube Shorts** (Shorts split out from YouTube 2026-09-10, migration 0008 — see X1). Instagram/Facebook arrive at X9. **Code must never hardcode the platform list** — see X1.
 - **Videos only.** Photos and carousels dropped.
 - Same video on both platforms must be pairable for cross-platform comparison.
-- The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal.
+- The dash stays a separate app — Option A, "link don't merge." Not rebuilt inside the portal. **D16 extends this: the sales side (X7) also lives here, as a slice of this same dash, rather than becoming a third app.**
 - Access is via portal Google login only. No standalone dash password, at all, as of X0.
 - Hypothesis tagging comes from X1's structured descriptions, not a separate taxonomy exercise.
-- Incomplete figures may be shown, but never unlabelled — see X3 and X-B2.
+- Incomplete figures may be shown, but never unlabelled — see X3 and X-B2. **With D18, incompleteness before M7.12 is permanent.**
 
 ## Data reality (verified against repo + DB, 2026-09-09)
 
@@ -263,17 +271,19 @@ TikTok Business account + app registration + the new OAuth scopes have to be app
 - `performance`: **daily snapshot per video** — views, likes, comments, shares, saves, avgWatchTimeSeconds, retentionPct, followersAtCapture. Snapshots accumulate nightly, so growth over time is derivable.
 - **Snapshot history is thin (checked 2026-09-10):** only three capture dates exist — 2026-08-18, 2026-09-09, 2026-09-10. Nothing between Aug 18 and Sep 9 (the nightly-sync outage in `punch-list.md`). So X2's velocity and ad-split figures will read "too new"/"no snapshot" for most videos until the nightly sync has run for a few weeks. Expected, not a bug — the UI must say so rather than show blanks.
 - YouTube: watch time + retention present. Shares always 0 (Data API doesn't expose them).
-- TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 fixes it. `sync.ts` has a locked rule against deriving them meanwhile.
+- TikTok: avgWatchTimeSeconds and retentionPct **always null** on the current Display API integration. Not a platform limit — an API-choice limit. X4 would fix it, but X4 has no start date (D20). `sync.ts` has a locked rule against deriving them meanwhile.
 - **No ad data anywhere** until X1's manual entry (0 ad runs and 0 ref pairs saved as of 2026-09-10).
 - **No enrollment attribution.** Stripe enrollments carry no link to a video, ever.
-- **Stripe enrollment counts are a floor, not a total** — see X-B2.
+- **Stripe enrollment counts are a floor, not a total** — see X-B2, and note D18 makes that permanent for months before M7.12.
 - `VITE_API_WRITE_TOKEN` is inlined into the client bundle at build time and **must never be set on a hosted build**. As of X0 the dash no longer reads it at all — writes go through the session cookie.
 - `Run log` (`/api/logs`) is an engineering debug view. No revenue, no content data.
 - KPI tab was erased 2026-09-10 and rebuilt by X3 on 2026-09-11. `/api/kpis` and `/api/kpis/monthly` untouched throughout.
-- Analyst Supabase project (`kmgltqfwtyhswqxjicab`) still authenticates with the legacy `eyJ` service role key — see X-B4.
+- Analyst Supabase project (`kmgltqfwtyhswqxjicab`) still authenticates with the legacy `eyJ` service role key — see X-B4; D19 switches it inside X-V.
 
 ## Not in scope
 - Photos, carousels, stories
 - Enrollment attribution at the video level — no data source exists
+- Backfilling historical Interac / manual enrollments — D18
 - Rebuilding the dash natively inside the portal (Option B) — that stays an M7-era idea, not a plan
+- A separate sales product or repo — D16 puts X7 inside this dash
 - A standalone hypothesis taxonomy exercise — dropped, see X-B3
