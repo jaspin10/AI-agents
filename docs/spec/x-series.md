@@ -200,12 +200,12 @@ Still open for the X7 chat: what the sales agent reads (WhatsApp export shape, n
 - Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
 
 ### X9 — Instagram + Facebook
-**X-B1's blocker is cleared (2026-09-12) — access is resolved; what remains is Meta enabling the metrics, expected around Tue 2026-09-15.**
+**X-B1 status (corrected 2026-09-15): the only remaining blocker is Meta Business Verification, submitted 2026-09-11.** Everything on our side is configured; nothing is misconfigured. See X-B1 for the exact sequence once it clears.
 
 - Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
 - **X-B1 is permission; X9 is the build.** Permission landing does not put a single Instagram row in `content` — the integration still has to be written, and Meta app review may add delay.
 - Once X9's sync runs, Instagram videos appear on X1's `/analysis` page automatically. No X1 rework.
-- With the access blocker gone, X9 can be scheduled on its own merits.
+- X9 can be scheduled on its own merits; it starts the moment the System User token exists.
 
 ### X-V — X1 / X6 verification + fixes
 **CLOSED 2026-09-12.** A checking milestone, not a build. All three items verified against live Railway logs:
@@ -220,9 +220,22 @@ Found along the way, now recorded elsewhere in this file: the env-var service pa
 
 ## Track B — not code, needs a person
 
-**X-B1 — Instagram access. RESOLVED 2026-09-12 (D17).** The contractor situation is settled — access is in hand. What is left is not a person problem: Meta has to switch the metrics on, expected around **Tue 2026-09-15**. No fallback needed; the "create a new Facebook Page and re-link Instagram" option is off the table and should not be revived.
+**X-B1 — Meta (Instagram + Facebook) API access. CORRECTED 2026-09-15 — blocked on Meta Business Verification, not on the contractor.**
 
-History, kept because it explains the env var shape: the Facebook Page (645259428673564) sat in a business portfolio owned by the website contractor and was linked to the wrong IG profile. Env vars already scoped (META_APP_ID/SECRET/PAGE_ID/IG_USER_ID/ACCESS_TOKEN; System User token recommended).
+**⚠ Correction:** earlier versions of this entry said the Facebook Page sat in a business portfolio owned by the website contractor, and later that "Meta has to switch the metrics on". Both were wrong. Verified 2026-09-11 in Business Settings:
+
+- The Meta Business Portfolio **"French With Jas" is Jas's own.** Jas and Paul Sahota have Full access; Eknoor Sadhra and the Loop Studio agency have Partial/Basic access only. The Facebook Page (645259428673564) and the @frenchwithjas Instagram are already linked under it. There was never a contractor-ownership problem. The "create a new Facebook Page and re-link Instagram" option is off the table and should not be revived.
+- Meta app **"French With Jas Analyst"** (App ID `1039185129230299`, contact jaspin10@gmail.com) was created 2026-09-11 under that portfolio, with use cases: Marketing API (ads), Threads API (Threads app ID `1647750526837213`), WhatsApp Business Platform, Manage everything on your Page, Manage messaging & content on Instagram.
+- **The real blocker is Business Verification.** The portfolio shows "Verification for Jaspinder Pal Singh" — it was never started, and Meta gates two things on it: creating a System User (every name attempt fails with "You choose an invalid System User name" until verified) and connecting Pages/Instagram as app assets (the app's "Connect assets" dialog offers **ad accounts only** while unverified). This is why a Graph API Explorer user token with `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement` all granted still returned an empty `me/accounts` on two separate tokens — ruled out stale token, declined scopes, Page assignment and app assignment. Nothing is misconfigured.
+- **Verification submitted 2026-09-11** for the legal entity **START FRENCH WITH JAS INC.** (BC corporation, incorporated 2025-11-10) with the BC Registry incorporation package. Meta quoted ~2 business days.
+- Ad account `274673539792196` is the one asset connectable pre-verification — needed later for the Marketing API at X5, not for X9.
+
+**Sequence once verification clears** (this is the X9 pre-flight, not X9 itself):
+1. Business Settings → create the System User (the name error should vanish).
+2. Connect the Page + Instagram to the "French With Jas Analyst" app as assets.
+3. Generate a non-expiring System User token with the Page + Instagram scopes.
+4. Set `META_APP_ID` / `META_APP_SECRET` / `META_PAGE_ID` / `META_IG_USER_ID` / `META_ACCESS_TOKEN` on the Railway services that will run the X9 sync (service parity rule applies).
+5. Start X9.
 
 **X-B2 — Enrollment reconciliation. D18 ANSWERED 2026-09-12: capture from now on, NO BACKFILL.**
 
