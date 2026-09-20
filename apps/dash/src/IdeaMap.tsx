@@ -86,7 +86,7 @@ export function IdeaMap() {
               if (e === undefined) return <div className="dim" style={{ marginTop: 10, fontSize: 12 }}>No insights run yet — edges appear after the first run.</div>;
               return (
                 <div style={{ marginTop: 10, fontSize: 13 }}>
-                  <div className="dim" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Source videos ({e.sourceVideoIds.length})</div>
+                  <div className="dim" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Source videos ({e.sourceVideoIds.length}) · {selected.payload.evidenceContentIds ? 'cited evidence' : 'historical inferred'}</div>
                   {e.sourceVideoIds.length === 0 ? <div className="dim">none — suggestion has no hypothesis tag or no earlier tagged videos</div> : null}
                   {e.sourceVideoIds.slice(0, 8).map((id) => <div key={id}>{videoLabel(id)}</div>)}
                   <div className="dim" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: 8 }}>

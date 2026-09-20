@@ -141,6 +141,7 @@ export interface IdeaEdge {
 }
 
 export interface SuggestionForEdges {
+  evidenceContentIds?: string[];
   id: string;
   status: string;
   createdAt: string;
@@ -321,8 +322,9 @@ export function ideaEdges(
   const medianByPlatform = new Map(platformReports.map((p) => [p.platform, p.platformMedianPct] as const));
   const aiVideos = videos.filter((v) => (v.analysis?.ideaSource ?? '').trim().toLowerCase() === AI_AGENT_SOURCE);
   return suggestions.map((s) => {
-    const sourceVideoIds =
-      s.hypothesis === null ? [] : videos.filter((v) => v.hypothesis === s.hypothesis && v.postedAt < s.createdAt).map((v) => v.id);
+    const sourceVideoIds = s.evidenceContentIds !== undefined
+      ? s.evidenceContentIds.filter(id => videos.some(v => v.id === id))
+      : s.hypothesis === null ? [] : videos.filter((v) => v.hypothesis === s.hypothesis && v.postedAt < s.createdAt).map((v) => v.id);
     const formatSlug = s.format === null ? null : slug(s.format);
     const outcomes: IdeaEdge['outcomes'] = [];
     for (const v of aiVideos) {

@@ -1,3 +1,4 @@
+import { createReservedLlm } from '@platform/memory';
 /**
  * X6 — Agent correlation + the closed loop (docs/spec/x-series.md, X6).
  *
@@ -20,7 +21,6 @@ import {
   AgentContractSchema,
   ContractViolationError,
   correlate,
-  createLlmClient,
   rates,
   type AgentContext,
   type AgentContract,
@@ -167,6 +167,7 @@ async function loadVideos(memory: MemoryClient): Promise<{ videos: InsightVideo[
     hypothesis: s.hypothesis,
     theme: s.payload.kind === 'next_video' ? s.payload.theme : null,
     format: s.payload.kind === 'next_video' ? s.payload.format : null,
+    evidenceContentIds: s.payload.kind === 'next_video' ? s.payload.evidenceContentIds : undefined,
   }));
   return { videos, suggestions };
 }
@@ -285,20 +286,25 @@ async function run(task: Task, context: AgentContext): Promise<InsightsOutput> {
   const month = new Date().toISOString().slice(0, 7);
   let usedThisMonth = 0;
   if (cap !== null) usedThisMonth = await memory.llmUsage.monthlyTotal(month);
-  const llm = createLlmClient();
-  if (llm === null) llmStatus = { status: 'skipped', reason: 'ANTHROPIC_API_KEY missing' };
+  const llm = createReservedLlm(context.runId, INSIGHTS_AGENT_NAME);
+  if (llm === null) llmStatus = { status: 'skipped', reason: 'LLM key, database or positive monthly cap unavailable' };
   else if (cap !== null && usedThisMonth >= cap) llmStatus = { status: 'skipped', reason: `LLM monthly cap reached (${usedThisMonth}/${cap} in ${month})` };
 
   if (llm !== null && llmStatus.status === 'ok') {
-    const n = await narrate(llm, correlation);
-    narrative = n.narrative;
-    tokens.input += n.usage.input;
-    tokens.output += n.usage.output;
-    const existing = [...new Set((await memory.hypothesisSuggestions.all()).map((h) => h.tag))];
-    const t = await proposeTags(llm, videos, existing);
-    proposals = t.proposals;
-    tokens.input += t.usage.input;
-    tokens.output += t.usage.output;
+    try {
+      const n = await narrate(llm, correlation);
+      narrative = n.narrative;
+      tokens.input += n.usage.input;
+      tokens.output += n.usage.output;
+      const existing = [...new Set((await memory.hypothesisSuggestions.all()).map((h) => h.tag))];
+      const t = await proposeTags(llm, videos, existing);
+      proposals = t.proposals;
+      tokens.input += t.usage.input;
+      tokens.output += t.usage.output;
+    } catch {
+      narrative = null; proposals = [];
+      llmStatus = { status: 'skipped', reason: 'LLM unavailable, invalid output or budget unavailable; numbers only' };
+    }
   } else {
     context.logger.warn(`insights: LLM skipped — ${llmStatus.status === 'skipped' ? llmStatus.reason : ''}`);
   }
@@ -319,15 +325,6 @@ async function run(task: Task, context: AgentContext): Promise<InsightsOutput> {
   });
   const inserted = await memory.hypothesisSuggestions.propose(proposals.map((p) => ({ runId: stored.id, ...p })));
   context.logger.info(`insights: run ${stored.id} stored (${status}); ${inserted} new tag proposals of ${proposals.length}`);
-
-  // 4) Ledger (§6) — failure must not lose the run.
-  if (tokens.input + tokens.output > 0) {
-    try {
-      await memory.llmUsage.record({ runId: context.runId, agent: INSIGHTS_AGENT_NAME, model: 'claude-sonnet-4-6', inputTokens: tokens.input, outputTokens: tokens.output });
-    } catch (error) {
-      context.logger.error(`failed to record llm_usage row: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
 
   return {
     insightRunId: stored.id,

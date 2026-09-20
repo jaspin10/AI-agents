@@ -359,6 +359,12 @@ Code-level gaps found in this review:
 
 ### X10 — Evidence foundation and Suggestions v2
 
+**Implementation checkpoint 2026-09-20 — code and fixture tests, NOT SHIPPED.** Canonical UUID Suggestions joins, unchanged shared X2 percentage calculations (including saves), within-platform/age/format/exposure cohort sampling, X1 + stored X6 prompt evidence, validated UUID/run citations and saved evidence snapshots are implemented. New suggestions use their recorded source IDs in Idea map; historical X6 inference remains inference. Provenance fields persist availability and retain explicit observed zero; legacy endpoint/definition/availability is labelled unverified, never guessed from zero. X2's heuristic and X6's engagement score remain unchanged under **C4 NOT APPROVED**.
+
+Migration `20260920055246_x10_evidence_budget.sql` is prepared, NOT applied: provenance storage and serialized per-call budget reservations (also used by X6 narrative calls without changing scoring). Missing cap/key/reservation service prevents paid calls; uncertain calls conservatively retain their reservation. SDK automatic retries are disabled; each explicit retry reserves again. No paid calls were made during implementation.
+
+Remaining: native metric definitions/Shorts classification must be verified against authorized account data before ingestion can populate trustworthy native provenance. Historical rows are not backfilled or reclassified. Duration-matched evidence awaits X11 metadata; cohorts without eight comparable videos abstain from ranking. Full availability unification is blocked by C4. Production/migration verification is outstanding.
+
 **Priority: first. Dependencies: existing X1/X2/X6.** Make the present system agree with itself before teaching it more creative rules.
 
 Scope:

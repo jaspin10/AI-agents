@@ -29,6 +29,8 @@ export function createLlmClient(): LlmClient | null {
   if (apiKey === undefined || apiKey === '') return null;
   const client = new Anthropic({
     apiKey,
+    maxRetries: 0,
+    timeout: 120000,
     dangerouslyAllowBrowser: process.env['LLM_ALLOW_BROWSER'] === '1',
   });
 

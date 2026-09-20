@@ -9,6 +9,7 @@ export interface SuggestionRow {
     hook?: string;
     format?: string;
     rationale?: string;
+    evidenceContentIds?: string[]; insightRunId?: string | null; evidenceMode?: string; evidenceSnapshot?: unknown;
   };
   hypothesis: string | null;
   bannedTopicsPassed: boolean;

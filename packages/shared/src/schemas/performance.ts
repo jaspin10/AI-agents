@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema, PlatformSchema } from './primitives.js';
 
+export const MetricProvenanceSchema = z.object({
+  nativeName: z.string().min(1), source: z.string().min(1),
+  observationWindow: z.string().nullable(), capturedAt: IsoDateTimeSchema,
+  denominator: z.string().nullable(), definitionVersion: z.string().min(1),
+  availability: z.enum(['observed', 'unsupported', 'not_authorized', 'missing', 'error']),
+});
+export type MetricProvenance = z.infer<typeof MetricProvenanceSchema>;
+
 /** Point-in-time metrics for one video on one platform. Fields a platform doesn't expose are null. */
 export const VideoMetricsSchema = z.object({
   views: z.number().int().nonnegative(),
@@ -28,5 +36,6 @@ export const PerformanceRecordSchema = z.object({
   /** UTC calendar date of capture, e.g. "2026-08-18" — idempotency key with contentId. */
   capturedDate: z.iso.date(),
   metrics: VideoMetricsSchema,
+  provenance: z.record(z.string(), MetricProvenanceSchema).optional(),
 });
 export type PerformanceRecord = z.infer<typeof PerformanceRecordSchema>;

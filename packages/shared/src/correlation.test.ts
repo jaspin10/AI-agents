@@ -133,3 +133,8 @@ test('correlate: caution and method always present, totals count analysed vs sco
   assert.ok(report.caution.length >= 4);
   assert.ok(report.method.includes('engagement rate'));
 });
+
+test('recorded empty source evidence does not manufacture tag edges', () => {
+ const edges = ideaEdges([{id:'s',status:'surfaced',createdAt:'2026-01-01T00:00:00Z',hypothesis:'tag',theme:'t',format:'f',evidenceContentIds:[]}], [], []);
+ assert.deepEqual(edges[0]?.sourceVideoIds, []);
+});
