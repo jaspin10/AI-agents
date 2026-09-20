@@ -212,7 +212,7 @@ export class MetaFacebookClient {
     // Meta historically reports average watched time in milliseconds. Use it
     // only when that explicit metric is exposed; never derive average time
     // from aggregate view time because denominators differ by metric/version.
-    const avgWatchTimeSeconds = avgWatchRaw === null ? null : avgWatchRaw / 1000;
+    const avgWatchTimeSeconds = avgWatchRaw == null ? null : avgWatchRaw / 1000;
 
     return {
       views: Math.max(0, Math.round(viewsRaw ?? 0)),
