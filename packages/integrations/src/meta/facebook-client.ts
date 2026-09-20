@@ -5,6 +5,14 @@ import { requestJson } from '../http.js';
 
 const DEFAULT_GRAPH_API_VERSION = 'v26.0';
 
+const AccountsSchema = z.object({
+  data: z.array(z.object({
+    id: z.string().min(1),
+    access_token: z.string().min(1).optional(),
+  }).passthrough()),
+  paging: z.object({ next: z.string().url().optional() }).optional(),
+});
+
 const VideoSchema = z.object({
   id: z.string().min(1),
   title: z.string().optional(),
@@ -104,22 +112,59 @@ function numeric(value: unknown): number | null {
 /** Read-only Facebook Page video/Reel analytics client. */
 export class MetaFacebookClient {
   private readonly baseUrl: string;
-  private readonly appSecretProof: string;
+  private pageTokenPromise: Promise<string> | null = null;
 
   constructor(private readonly config: MetaConfig) {
     this.baseUrl = `https://graph.facebook.com/${config.graphApiVersion ?? DEFAULT_GRAPH_API_VERSION}`;
-    this.appSecretProof = createHmac('sha256', config.appSecret)
-      .update(config.accessToken)
-      .digest('hex');
   }
 
-  private async get<T>(pathOrUrl: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
+  private proof(token: string): string {
+    return createHmac('sha256', this.config.appSecret).update(token).digest('hex');
+  }
+
+  private async systemGet<T>(pathOrUrl: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
     const url = pathOrUrl.startsWith('https://') ? pathOrUrl : `${this.baseUrl}/${pathOrUrl.replace(/^\//, '')}`;
     return requestJson<T>(url, {
       query: {
         ...query,
         access_token: this.config.accessToken,
-        appsecret_proof: this.appSecretProof,
+        appsecret_proof: this.proof(this.config.accessToken),
+      },
+    });
+  }
+
+  /**
+   * Facebook Page content endpoints are authenticated with the Page access
+   * token returned by /me/accounts. The configured System User token is only
+   * the server-side credential used to obtain it; it is never logged/stored.
+   */
+  private async pageAccessToken(): Promise<string> {
+    if (this.pageTokenPromise !== null) return this.pageTokenPromise;
+    this.pageTokenPromise = (async () => {
+      let next: string | undefined;
+      do {
+        const raw = await this.systemGet<unknown>(
+          next ?? 'me/accounts',
+          next === undefined ? { fields: 'id,access_token', limit: 100 } : {}
+        );
+        const page = AccountsSchema.parse(raw);
+        const match = page.data.find((item) => item.id === this.config.pageId);
+        if (match?.access_token !== undefined) return match.access_token;
+        next = page.paging?.next;
+      } while (next !== undefined);
+      throw new Error(`Meta Page ${this.config.pageId} is not available through /me/accounts for the configured System User token.`);
+    })();
+    return this.pageTokenPromise;
+  }
+
+  private async get<T>(pathOrUrl: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
+    const token = await this.pageAccessToken();
+    const url = pathOrUrl.startsWith('https://') ? pathOrUrl : `${this.baseUrl}/${pathOrUrl.replace(/^\//, '')}`;
+    return requestJson<T>(url, {
+      query: {
+        ...query,
+        access_token: token,
+        appsecret_proof: this.proof(token),
       },
     });
   }
