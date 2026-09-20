@@ -27,6 +27,17 @@ const StripeConfigSchema = z.object({
 });
 export type StripeConfig = z.infer<typeof StripeConfigSchema>;
 
+/** Meta Graph API: server-side System User token, read-only analytics. */
+const MetaConfigSchema = z.object({
+  appId: z.string().min(1),
+  appSecret: z.string().min(1),
+  pageId: z.string().min(1),
+  igUserId: z.string().min(1),
+  accessToken: z.string().min(1),
+  graphApiVersion: z.string().regex(/^v\\d+\\.\\d+$/).optional(),
+});
+export type MetaConfig = z.infer<typeof MetaConfigSchema>;
+
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value === undefined || value === '' ? undefined : value;
