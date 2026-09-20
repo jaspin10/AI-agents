@@ -4,7 +4,6 @@ import {
   ContractViolationError,
   NextVideoSuggestionSchema,
   NextVideoTaskPayloadSchema,
-  createLlmClient,
   type AgentContext,
   type AgentContract,
   type BrandAssetChunk,
@@ -12,9 +11,9 @@ import {
   type SuggestionRow,
   type Task,
 } from '@platform/shared';
-import { createMemoryClient } from '@platform/memory';
+import { createMemoryClient, createReservedLlm } from '@platform/memory';
 import { z } from 'zod';
-import { analyse } from './analysis.js';
+import { analyse, evidenceForPrompt, validateEvidence } from './analysis.js';
 import { buildGenerationSystemPrompt, buildGenerationUserPrompt } from './prompts.js';
 import { runBannedTopicsCheck, runBrandVoiceCheck } from './checks.js';
 import { LlmCapExceededError, readMonthlyCap } from './cap.js';
@@ -35,6 +34,9 @@ const GenerationSchema = z.object({
       format: z.string().min(1),
       hypothesis: z.string().nullable(),
       rationale: z.string().min(1),
+      evidenceContentIds: z.array(z.uuid()).max(30),
+      insightRunId: z.uuid().nullable(),
+      evidenceMode: z.enum(['evidence_backed', 'creative_exploration']),
     })
   ),
 });
@@ -62,9 +64,9 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
   const payload = NextVideoTaskPayloadSchema.parse(task.payload);
   const count = payload.count ?? 3;
 
-  const llm = createLlmClient();
+  const llm = createReservedLlm(context.runId, ANALYST_AGENT_NAME);
   if (llm === null) {
-    throw new ContractViolationError('ANTHROPIC_API_KEY missing — the analyst cannot run without it.');
+    throw new ContractViolationError('LLM key, database or positive monthly cap missing — no paid call allowed.');
   }
   const memory = createMemoryClient();
 
@@ -83,16 +85,18 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
   }
 
   // 1) Read data.
-  const [content, performance, brandChunks] = await Promise.all([
+  const [content, performance, brandChunks, analyses, insight] = await Promise.all([
     memory.content.all(),
     memory.performance.all(),
     memory.brandAssets.allChunks('brand-voice.md'),
+    memory.contentAnalysis.all(),
+    memory.insightRuns.latest(),
   ]);
   const bannedChunk = chunkByHeadingPrefix(brandChunks, '3.');
   const toneChunk = chunkByHeadingPrefix(brandChunks, '4.');
 
   // 2) Analyse.
-  const summary = analyse(content, performance);
+  const summary = analyse(content, performance, analyses, insight);
   context.logger.info(`analysed ${summary.totalVideos} videos (${summary.taggedVideos} tagged)`);
 
   const tokens = { input: 0, output: 0 };
@@ -116,6 +120,8 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
     for (const candidate of candidates) {
       if (surfaced.length >= count) break;
 
+      validateEvidence(candidate.evidenceContentIds, candidate.insightRunId, summary);
+      if (candidate.evidenceMode === 'evidence_backed' && (candidate.evidenceContentIds.length === 0 || !candidate.evidenceContentIds.some(id => summary.top.some(v => v.contentUuid === id) || summary.bottom.some(v => v.contentUuid === id)))) throw new Error('insufficient_evidence');
       const banned = await runBannedTopicsCheck(llm, bannedChunk, candidate);
       tokens.input += banned.usage.inputTokens;
       tokens.output += banned.usage.outputTokens;
@@ -138,6 +144,9 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
           ? (candidate.hypothesis as NextVideoSuggestion['hypothesis'])
           : null,
         rationale: candidate.rationale,
+        evidenceContentIds: candidate.evidenceContentIds, insightRunId: candidate.insightRunId, evidenceMode: candidate.evidenceMode,
+        evidenceSnapshot: { videos: evidenceForPrompt(summary), insight: summary.insight, cautions: summary.cautions },
+        modelVersion: generation.model, promptVersion: 'suggestions-x10-v1',
         createdAt: new Date().toISOString(),
       };
 
@@ -169,22 +178,7 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
     }
   }
 
-  // 4) Record spend to the ledger (§6). Failure to record must not lose the run's
-  // suggestions — log loudly instead, the ledger self-corrects next month.
-  try {
-    await memory.llmUsage.record({
-      runId: context.runId,
-      agent: ANALYST_AGENT_NAME,
-      model: 'claude-sonnet-4-6',
-      inputTokens: tokens.input,
-      outputTokens: tokens.output,
-    });
-  } catch (error) {
-    context.logger.error(
-      `failed to record llm_usage row: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-
+  // Usage is settled atomically per call, including checks and retries.
   return {
     suggestions: surfaced,
     rejected: rejectedCount,

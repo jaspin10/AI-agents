@@ -8,7 +8,9 @@
   },
   "packageManager": "pnpm@10.15.0",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "scripts": {
     "build": "pnpm -r run build",
@@ -24,6 +26,11 @@
     "insights": "pnpm run build && node --env-file=.env apps/orchestrator/dist/insights.js",
     "dash": "pnpm run build && (node --env-file=.env apps/api/dist/index.js & pnpm --filter @platform/dash run dev)",
     "slack": "pnpm run build && node --env-file=.env apps/slack/dist/index.js",
-    "report": "pnpm run build && node --env-file=.env apps/slack/dist/report.js"
+    "report": "pnpm run build && node --env-file=.env apps/slack/dist/report.js",
+    "test": "pnpm -r --if-present test && node --test tests/*.test.mjs",
+    "typecheck": "pnpm --filter @platform/dash exec tsc --noEmit"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.14"
   }
 }

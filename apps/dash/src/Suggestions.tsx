@@ -58,6 +58,7 @@ export function Suggestions() {
           <div><span className="dim">Format:</span> {s.payload.format ?? '—'}</div>
           <div><span className="dim">Hypothesis:</span> {s.hypothesis ?? 'untagged'}</div>
           <div style={{ marginTop: 8 }} className="dim">{s.payload.rationale ?? ''}</div>
+          <details><summary>Evidence · {s.payload.evidenceMode ?? 'historical inferred / unverified'}</summary><p>Content: {s.payload.evidenceContentIds?.join(', ') ?? 'not recorded'} · Insight run: {s.payload.insightRunId ?? 'none'}</p><pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(s.payload.evidenceSnapshot ?? {notice:'No recorded prompt evidence for this historical suggestion.'}, null, 2)}</pre></details>
           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12 }} className="dim">{new Date(s.createdAt).toLocaleString()}</span>
             {s.status === 'surfaced' ? (

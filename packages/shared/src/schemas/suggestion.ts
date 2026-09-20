@@ -17,6 +17,12 @@ const SuggestionBaseSchema = z.object({
 /** M4: next-video suggestion (theme, hook, format, hypothesis tag) per §9. */
 export const NextVideoSuggestionSchema = SuggestionBaseSchema.extend({
   kind: z.literal('next_video'),
+  evidenceContentIds: z.array(z.uuid()).optional(),
+  insightRunId: z.uuid().nullable().optional(),
+  evidenceMode: z.enum(['evidence_backed', 'creative_exploration']).optional(),
+  evidenceSnapshot: z.record(z.string(), z.unknown()).optional(),
+  modelVersion: z.string().optional(),
+  promptVersion: z.string().optional(),
   theme: z.string().min(1),
   hook: z.string().min(1),
   format: z.string().min(1),
