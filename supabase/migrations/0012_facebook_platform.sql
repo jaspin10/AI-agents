@@ -1,4 +1,4 @@
--- 0011 · X9 Facebook ingestion: allow Facebook as a first-class platform.
+-- 0012 · X9 Facebook ingestion: allow Facebook as a first-class platform.
 -- Keep the existing YouTube Shorts value and extend only the platform constraints.
 
 DO $$
