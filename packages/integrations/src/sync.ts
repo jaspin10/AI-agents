@@ -9,6 +9,7 @@ import type {
 } from '@platform/shared';
 import { createMemoryClient } from '@platform/memory';
 import {
+  readMetaConfig,
   readStripeConfig,
   readTikTokConfig,
   readYouTubeConfig,
@@ -17,12 +18,13 @@ import { TikTokClient } from './tiktok/client.js';
 import { YouTubeDataClient } from './youtube/data-client.js';
 import { YouTubeAnalyticsClient } from './youtube/analytics-client.js';
 import { StripeClient } from './stripe/client.js';
+import { MetaInstagramClient } from './meta/instagram-client.js';
 import { loadHypothesisTags, tagFor, type HypothesisTagMap } from './hypothesis-tags.js';
 
 const logger = createLogger('sync');
 
-type PlatformName = 'tiktok' | 'youtube' | 'stripe';
-const ALL_PLATFORMS: PlatformName[] = ['tiktok', 'youtube', 'stripe'];
+type PlatformName = 'tiktok' | 'youtube' | 'instagram' | 'stripe';
+const ALL_PLATFORMS: PlatformName[] = ['tiktok', 'youtube', 'instagram', 'stripe'];
 
 /**
  * YouTube Shorts vs regular videos (locked 2026-09-10, Jas): the Data API has
@@ -252,6 +254,58 @@ async function syncYouTube(writer: Writer, dryRun: boolean, csvTags: HypothesisT
   logger.info(`youtube: ${shortsCount} classified as Shorts (<=${YOUTUBE_SHORT_MAX_SECONDS}s), ${snapshot.videos.length - shortsCount} as regular videos`);
 }
 
+async function syncInstagram(writer: Writer, csvTags: HypothesisTagMap, dbTags: HypothesisTagMap): Promise<void> {
+  const config = readMetaConfig();
+  if (config === null) throw new Error('Meta env vars not configured.');
+
+  const client = new MetaInstagramClient(config);
+  const snapshot = await client.snapshot();
+  logger.info(
+    `instagram: ${snapshot.media.length} videos/reels${snapshot.followerCount === null ? '' : `, ${snapshot.followerCount} followers`}`
+  );
+
+  const now = new Date();
+  const capturedAt = now.toISOString();
+  const capturedDate = capturedAt.slice(0, 10);
+
+  for (const media of snapshot.media) {
+    const hypothesis =
+      tagFor(csvTags, 'instagram', media.id) ??
+      dbTags.get(`instagram:${media.id}`) ??
+      null;
+
+    await writer.content({
+      platform: 'instagram',
+      platformVideoId: media.id,
+      title: media.caption,
+      hook: null,
+      format: null,
+      hypothesis,
+      postedAt: media.timestamp,
+    });
+
+    await writer.performance({
+      id: randomUUID(),
+      contentId: media.id,
+      platform: 'instagram',
+      capturedAt,
+      capturedDate,
+      metrics: {
+        views: media.metrics.views,
+        likes: media.metrics.likes,
+        comments: media.metrics.comments,
+        shares: media.metrics.shares,
+        saves: media.metrics.saves,
+        avgWatchTimeSeconds: media.metrics.avgWatchTimeSeconds,
+        // Meta's reels_skip_rate is not the same metric as average retention.
+        // Do not derive 100-skip-rate and call it retention.
+        retentionPct: null,
+        followersAtCapture: snapshot.followerCount,
+      },
+    });
+  }
+}
+
 async function syncStripe(writer: Writer): Promise<void> {
   const config = readStripeConfig();
   if (config === null) throw new Error('Stripe env vars not configured.');
@@ -290,6 +344,7 @@ async function main(): Promise<boolean> {
     try {
       if (platform === 'tiktok') await syncTikTok(writer, csvTags, dbTags);
       else if (platform === 'youtube') await syncYouTube(writer, options.dryRun, csvTags, dbTags);
+      else if (platform === 'instagram') await syncInstagram(writer, csvTags, dbTags);
       else await syncStripe(writer);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
