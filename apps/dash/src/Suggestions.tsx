@@ -1,3 +1,4 @@
+import { AudienceResearch } from './AudienceResearch.js';
 import { useEffect, useState } from 'react';
 import { getJson, setSuggestionStatus, type SuggestionRow } from './api.js';
 
@@ -38,10 +39,12 @@ export function Suggestions() {
 
   if (error !== null) return <div className="card dim">API error: {error} — is the API running? (pnpm dash)</div>;
   if (rows === null) return <div className="card dim">Loading…</div>;
-  if (rows.length === 0) return <div className="card dim">No suggestions yet — run pnpm suggest.</div>;
+
 
   return (
     <>
+      <AudienceResearch />
+      {rows.length===0 && <p>No suggestions yet.</p>}
       {rows.map((s) => (
         <div className="card" key={s.id}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>

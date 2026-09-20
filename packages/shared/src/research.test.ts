@@ -1,0 +1,9 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { ResearchSchema, researchKey, topicOpportunities } from './research.js';
+const sample={text:'How can I practise speaking?',theme:'Speaking',category:'learning',sourceType:'learner_question',sourceUrl:null,sourceDate:'2026-09-20',context:'Anonymous classroom question',approvedRedacted:true,audienceRelevance:'Beginners',teachingUsefulness:'Worked examples',productionEffort:'small',recentCoverage:'Not assessed',archived:false};
+const row=(body:Record<string,unknown>)=>({id:randomUUID(),kind:'research',entityKey:'k',version:1,body,updatedBy:'tester',updatedAt:'2026-09-20T00:00:00Z'});
+test('dedup normalizes Unicode, whitespace, punctuation, and case',()=>{assert.equal(researchKey(' HOW can I practise speaking?! '),researchKey(sample.text));});
+test('duplicates, spam, reference structures and exploration do not inflate observed demand',()=>{const r=row(sample),dup=row({...sample,text:'how can i practise speaking'}),ref=row({...sample,text:'Demonstration structure',sourceType:'public_reference',sourceUrl:'https://example.com/video'}),explore=row({...sample,text:'Try a new example',sourceType:'creative_exploration'}),spam=row({...sample,text:'BUY NOW',category:'spam'});const t=topicOpportunities([r,dup,ref,explore,spam]);assert.equal(t[0]?.verifiedOccurrences,1);assert.equal(t[0]?.referenceIds.length,1);assert.equal(t[0]?.evidenceIds.length,3);});
+test('contact details, private conversation links and unapproved entries rejected',()=>{for(const change of [{text:'Email me jas@example.com'},{context:'+1 (604) 555-1234'},{approvedRedacted:false},{sourceType:'redacted_objection',sourceUrl:'https://example.com/chat'}])assert.equal(ResearchSchema.safeParse({...sample,...change}).success,false);});

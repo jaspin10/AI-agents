@@ -40,3 +40,14 @@ test('studio revisions: CAS, immutable history, replay safety, no public access'
   await db.exec('reset role; set role authenticated');await assert.rejects(db.exec('select * from studio_records'),/permission denied/);
  }finally{await db.close();}
 });
+test('research dedup key is atomic on both creation and editing',async()=>{
+ const db=await database();try {
+  const a='00000000-0000-4000-8000-000000000070',b='00000000-0000-4000-8000-000000000071';
+  await db.exec('set role service_role');
+  const save=(id,key,version,request)=>db.query('select save_studio_record($1,$2,$3,$4,$5,$6,$7)',[id,'research',key,version,'{}','test',request]);
+  await save(a,'same',0,'00000000-0000-4000-8000-000000000072');
+  await assert.rejects(save(b,'same',0,'00000000-0000-4000-8000-000000000073'),/unique constraint/);
+  await save(b,'different',0,'00000000-0000-4000-8000-000000000074');
+  await assert.rejects(save(b,'same',1,'00000000-0000-4000-8000-000000000075'),/unique constraint/);
+ }finally{await db.close();}
+});

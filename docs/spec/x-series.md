@@ -387,6 +387,10 @@ Acceptance: Jas/Eknoor can correct a transcript or tag without losing provenance
 
 ### X12 — Audience questions and topic opportunities
 
+**Implementation checkpoint 2026-09-20 — manual slice implemented; NOT SHIPPED.** Suggestions includes an approved/redacted manual research inbox with source/date/context, learning/purchase/reaction/spam categories, human-assigned themes, public structure references, relevance/usefulness/effort/coverage notes, and edit/archive history. Normalized-text deduplication is enforced by a database unique key on creation and edit. Topic counts count distinct entered questions/objections only; reference videos, exploration, duplicates and spam do not inflate demand. Reasons and evidence IDs accompany each opportunity; no viral score or sensitive inference.
+
+`20260920060712_x12_audience_research.sql` is prepared NOT applied. Validation includes dedup/privacy/count fixtures, inherited role gates and atomic SQL collision tests. No WhatsApp/comment API ingestion, scraping or private conversations. Human redaction remains required: contact-pattern rejection is defense in depth, not guaranteed detection of personal details. Lists currently show the latest 500 records with a visible count limitation; production verification remains outstanding.
+
 **Priority: high. Dependencies: X10; manual-first, not blocked by X7.** Answer “What should we help our viewers with?” before asking “What format got views?”
 
 Build a small research inbox of approved comments, recurring learner questions, and redacted sales objections. Begin with manual text/link entry. Direct comment/WhatsApp ingestion is a separate permission and source-format task; the current read-only video scopes must not be assumed to authorize it.
