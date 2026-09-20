@@ -15,7 +15,7 @@ export type IsoDateTime = z.infer<typeof IsoDateTimeSchema>;
  * time. Kept as its own platform value (not a subtype field) so every
  * platform-agnostic filter/pairing already built for X1 picks it up for free.
  */
-export const PlatformSchema = z.enum(['instagram', 'tiktok', 'youtube', 'youtube_shorts']);
+export const PlatformSchema = z.enum(['facebook', 'instagram', 'tiktok', 'youtube', 'youtube_shorts']);
 export type Platform = z.infer<typeof PlatformSchema>;
 
 /**
