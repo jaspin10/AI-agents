@@ -200,12 +200,25 @@ Still open for the X7 chat: what the sales agent reads (WhatsApp export shape, n
 - Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
 
 ### X9 — Instagram + Facebook
-**X-B1's blocker is cleared (2026-09-12) — access is resolved; what remains is Meta enabling the metrics, expected around Tue 2026-09-15.**
+**Status 2026-09-19: Instagram ingestion IMPLEMENTED, awaiting first live Railway sync verification. Facebook ingestion is still not built.**
 
-- Both expose Reels/video watch time, so the X1–X6 pipeline extends without redesign.
-- **X-B1 is permission; X9 is the build.** Permission landing does not put a single Instagram row in `content` — the integration still has to be written, and Meta app review may add delay.
-- Once X9's sync runs, Instagram videos appear on X1's `/analysis` page automatically. No X1 rework.
-- With the access blocker gone, X9 can be scheduled on its own merits.
+Meta-side verification completed against the French With Jas app/account before code work:
+- Page `645259428673564` links to Instagram professional account `17841474051897273` (@frenchwithjas).
+- Working read permissions: `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`, `business_management`.
+- Reel media + insights returned live data, including `views`, likes, comments, shares, saves, average watch time and skip-rate-related metrics. `plays` is deprecated/rejected; use `views`.
+- A read-only System User (`Backend1`) was created and a never-expiring production token generated. Production Meta env vars were added to Railway `analyst-dash` and `nightly-sync`; secrets stay out of git/chat.
+
+Instagram code on branch `x9-instagram-sync`:
+- adds a read-only Meta Graph client pinned to Graph API v26.0 by default (override with `META_GRAPH_API_VERSION`);
+- verifies the configured Page → Instagram link before syncing;
+- walks Instagram media, keeps video/Reel rows only, and snapshots views/likes/comments/shares/saves/average watch time plus follower count into the existing `content` + `performance` pipeline;
+- adds `instagram` to the nightly sync platform list, so X1/X2/X6 pick it up through the existing platform-agnostic paths;
+- uses `appsecret_proof` on Graph requests; no publishing, messaging, commenting or ad-management capability is added;
+- does **not** map `reels_skip_rate` into `retention_pct` because those are different metrics.
+
+Remaining before X9 is closed:
+- merge + deploy the Instagram branch and verify one real `--platform instagram`/nightly run against Railway logs and resulting rows;
+- build and verify Facebook Page/Reels ingestion separately. Do not infer Facebook endpoint/metric behaviour from the Instagram test.
 
 ### X-V — X1 / X6 verification + fixes
 **CLOSED 2026-09-12.** A checking milestone, not a build. All three items verified against live Railway logs:
