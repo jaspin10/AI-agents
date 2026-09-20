@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  CreativeMemorySchema,
   AgentContractSchema,
   ContractViolationError,
   NextVideoSuggestionSchema,
@@ -11,7 +12,7 @@ import {
   type SuggestionRow,
   type Task,
 } from '@platform/shared';
-import { createMemoryClient, createReservedLlm } from '@platform/memory';
+import { createMemoryClient, createReservedLlm, createStudioStore } from '@platform/memory';
 import { z } from 'zod';
 import { analyse, evidenceForPrompt, validateEvidence } from './analysis.js';
 import { buildGenerationSystemPrompt, buildGenerationUserPrompt } from './prompts.js';
@@ -85,18 +86,19 @@ async function run(task: Task, context: AgentContext): Promise<AnalystOutput> {
   }
 
   // 1) Read data.
-  const [content, performance, brandChunks, analyses, insight] = await Promise.all([
+  const [content, performance, brandChunks, analyses, insight, memories] = await Promise.all([
     memory.content.all(),
     memory.performance.all(),
     memory.brandAssets.allChunks('brand-voice.md'),
     memory.contentAnalysis.all(),
     memory.insightRuns.latest(),
+    createStudioStore().list('memory'),
   ]);
   const bannedChunk = chunkByHeadingPrefix(brandChunks, '3.');
   const toneChunk = chunkByHeadingPrefix(brandChunks, '4.');
 
   // 2) Analyse.
-  const summary = analyse(content, performance, analyses, insight);
+  const summary = analyse(content, performance, analyses, insight, undefined, new Map(memories.map(r=>[r.id,CreativeMemorySchema.parse(r.body)])));
   context.logger.info(`analysed ${summary.totalVideos} videos (${summary.taggedVideos} tagged)`);
 
   const tokens = { input: 0, output: 0 };

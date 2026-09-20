@@ -1,3 +1,5 @@
+import { createStudioRouter } from './studio.js';
+import { createStudioStore } from '@platform/memory';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { readFile } from 'node:fs/promises';
@@ -228,6 +230,7 @@ app.use('/api/*', async (c, next) => {
 });
 
 const memory = createMemoryClient();
+app.route('/api/studio', createStudioRouter({ memory, store: createStudioStore() }));
 
 /** Who am I — lets the dash hide panels the caller cannot open. */
 app.get('/api/me', requireRole('owner', 'marketing'), (c) => {

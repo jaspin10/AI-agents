@@ -1,3 +1,4 @@
+import { CreativeMemory } from './CreativeMemory.js';
 import { useEffect, useMemo, useState } from 'react';
 import {
   getAnalysis,
@@ -233,10 +234,11 @@ export function Analysis() {
           </tbody>
         </table>
       </div>
-      {selected !== null && (
+      {selected !== null && <div> <CreativeMemory key={`memory-${selected.id}`} contentId={selected.id}/>
+      {(
         <AnalysisForm key={selected.id} video={selected} ideaSources={data.ideaSources}
           onClose={() => setSelectedId(null)} onSaved={onSaved} />
-      )}
+      )}</div>}
     </div>
   );
 }
