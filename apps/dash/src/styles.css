@@ -103,3 +103,10 @@ th { color: var(--dim); font-weight: 600; font-size: 12px; cursor: pointer; user
 .hint.bad { color: var(--red); }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+.studio-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:16px 0; }
+.studio-fields label, .studio label { display:flex; flex-direction:column; gap:5px; }
+.studio input, .studio textarea, .studio select, .studio-fields input { max-width:100%; padding:8px; }
+.studio fieldset { border:1px solid var(--border); margin:12px 0; padding:12px; }
+.studio textarea { width:100%; min-height:80px; }
+.studio pre { white-space:pre-wrap; overflow-wrap:anywhere; }

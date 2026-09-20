@@ -633,7 +633,7 @@ export function createMemoryClientFromConfig(
             platform: p.platform,
             captured_at: p.capturedAt,
             captured_date: p.capturedDate,
-          ...(p.provenance ? { provenance: p.provenance } : {}),
+            ...(p.provenance ? { provenance: p.provenance } : {}),
             views: p.metrics.views,
             likes: p.metrics.likes,
             comments: p.metrics.comments,

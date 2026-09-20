@@ -1,4 +1,4 @@
-import { rates, velocity, ageDays, type ContentRow, type PerformanceRecord, type MetricProvenance } from '@platform/shared';
+import { rates, velocity, ageDays, type ContentRow, type PerformanceRecord, type MetricProvenance, type CreativeMemory } from '@platform/shared';
 import type { ContentAnalysisRow, InsightRunRow } from '@platform/memory';
 
 export interface VideoAnalysis {
@@ -6,6 +6,7 @@ export interface VideoAnalysis {
   postedAt: string; capturedAt: string; ageDays: number; format: string | null;
   views: number; engagementRatePct: number | null; shareRatePct: number | null; commentRatePct: number | null;
   metrics: Record<string, { value: number | null; provenance: MetricProvenance }>;
+  creativeMemory: Pick<CreativeMemory, 'audience'|'learnerLevel'|'topic'|'purpose'|'languageMix'|'durationSeconds'|'openingLine'|'firstPayoffSeconds'|'ctaSeconds'> | null;
   exposure: 'boosted' | 'reported_not_boosted' | 'unknown';
   analysis: { description: string | null; hookText: string | null; format: string | null; ctaType: string | null; analysedAt: string } | null;
   velocity: ReturnType<typeof velocity>; cautions: string[];
@@ -19,13 +20,14 @@ export interface AnalysisSummary {
 export const EVIDENCE_CAUTION = 'Observational evidence, not causation. Eight scored videos is a reporting floor, not statistical confidence. Ad exposure and enrollment denominators may be incomplete. Calendar-day snapshots are not exact first-24-hour measurements. Missing duration/definition history prevents fair matched comparisons.';
 
 /** Existing X2 heuristic is deliberately unchanged under C4. Provenance does not rewrite this score. */
-export function analyse(content: ContentRow[], performance: PerformanceRecord[], analyses: ContentAnalysisRow[] = [], insight: InsightRunRow | null = null, today = new Date().toISOString().slice(0, 10)): AnalysisSummary {
+export function analyse(content: ContentRow[], performance: PerformanceRecord[], analyses: ContentAnalysisRow[] = [], insight: InsightRunRow | null = null, today = new Date().toISOString().slice(0, 10), memories: Map<string, CreativeMemory> = new Map()): AnalysisSummary {
   const videos: VideoAnalysis[] = [];
   for (const row of content) {
     if (!row.id) continue;
     const history = performance.filter(p => p.contentUuid === row.id && p.platform === row.platform).sort((a,b) => a.capturedAt.localeCompare(b.capturedAt));
     const perf = history.at(-1);
     if (!perf) continue;
+    const cm = memories.get(row.id);
     const a = analyses.find(a => a.contentId === row.id);
     const sharesReported = performance.some(p => p.platform === row.platform && p.metrics.shares > 0);
     const derived = rates({ ...perf.metrics, capturedDate: perf.capturedDate }, { sharesReported });
@@ -41,6 +43,7 @@ export function analyse(content: ContentRow[], performance: PerformanceRecord[],
     videos.push({ contentUuid: row.id, platform: row.platform, title: row.title, hypothesis: row.hypothesis,
       postedAt: row.postedAt, capturedAt: perf.capturedAt, ageDays: ageDays(row.postedAt, perf.capturedDate), format: a?.format ?? row.format,
       views: perf.metrics.views, ...derived, metrics,
+      creativeMemory: cm ? {audience:cm.audience,learnerLevel:cm.learnerLevel,topic:cm.topic,purpose:cm.purpose,languageMix:cm.languageMix,durationSeconds:cm.durationSeconds,openingLine:cm.openingLine,firstPayoffSeconds:cm.firstPayoffSeconds,ctaSeconds:cm.ctaSeconds}:null,
       exposure: a?.adBoosted === true ? 'boosted' : a?.adBoosted === false ? 'reported_not_boosted' : 'unknown',
       analysis: a ? { description: a.description, hookText: a.hookText, format: a.format, ctaType: a.ctaType, analysedAt: a.analysedAt } : null,
       velocity: velocity(history.map(p => ({ ...p.metrics, capturedDate: p.capturedDate })), row.postedAt, today),
@@ -53,7 +56,7 @@ export function analyse(content: ContentRow[], performance: PerformanceRecord[],
   // Unknown duration means comparisons remain exploratory (explicit caution).
   const cohorts = new Map<string, VideoAnalysis[]>();
   for (const v of videos.filter(v => v.views >= 100 && v.engagementRatePct !== null)) {
-    const key = JSON.stringify([v.platform, v.ageDays, v.format, v.exposure]);
+    const key = JSON.stringify([v.platform, v.ageDays, v.format, v.exposure, v.creativeMemory?.durationSeconds ?? null]);
     cohorts.set(key, [...(cohorts.get(key) ?? []), v]);
   }
   const top: VideoAnalysis[] = [], bottom: VideoAnalysis[] = [];

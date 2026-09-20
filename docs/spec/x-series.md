@@ -371,6 +371,10 @@ Acceptance: fixture tests show the same metric in all three surfaces; native-ID 
 
 ### X11 — Creative memory: understand what is in each video
 
+**Implementation checkpoint 2026-09-20 — manual slice implemented; NOT SHIPPED.** Analysis now includes editable descriptive fields, separate writer/filmer/editor labels, approved HTTPS asset references with human-supplied version/fingerprint, reviewed classification overrides (annotation only, not historical metric reclassification), and timecoded human observations. Asset changes reset observation reviews. Immutable revision history records session actor/time, with optimistic concurrency and idempotent saves. Owner/marketing API gates and content-ID validation remain server-side. No asset is uploaded, downloaded or processed; multilingual review stays human.
+
+`20260920060022_x11_creative_memory.sql` creates service-only revision storage, prepared NOT applied. Unit/API and isolated migration tests cover invalid references/times, review invalidation, role/ID checks, CAS and replay. Actual asset immutability/player timestamp support and multilingual sample review require human verification. Automated transcription/scene analysis is blocked by **C3 NOT APPROVED**.
+
 **Priority: high. Dependencies: X10; media processing requires the asset/privacy decision below.** Extend Analysis instead of adding another manual form people must duplicate.
 
 Start small: record intended audience/learner level, topic, purpose, spoken language mix, duration, opening line, first useful payoff, CTA position, and a link to the approved asset. These are descriptive fields attached to X1, not a revived independent hypothesis taxonomy. Keep idea origin separate from who wrote, filmed and edited.

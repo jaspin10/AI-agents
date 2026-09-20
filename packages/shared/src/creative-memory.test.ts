@@ -1,0 +1,8 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { prepareCreativeMemory, CreativeMemorySchema, annotationLink } from './creative-memory.js';
+const sample={audience:'learners',learnerLevel:'A1',topic:'greetings',purpose:'lesson',languageMix:['French'],durationSeconds:60,openingLine:'Bonjour',firstPayoffSeconds:5,ctaSeconds:55,asset:{url:'https://example.com/v1',version:'1',fingerprint:'human-file-v1',approvedReference:true as const},contributors:{writer:'Jas',filmer:'Jas',editor:'Loop Studio'},classification:{value:'uncertain' as const,source:'',reviewed:false},annotations:[{id:randomUUID(),kind:'transcript' as const,startSeconds:0,endSeconds:5,text:'Bonjour',confidence:'observed' as const,review:'reviewed' as const}]};
+test('asset revision invalidates reviews without losing prior record',()=>{const previous=CreativeMemorySchema.parse(sample);const next=prepareCreativeMemory({...sample,asset:{...sample.asset,version:'2'}},previous);assert.equal(next.annotations[0]?.review,'draft');assert.equal(previous.annotations[0]?.review,'reviewed');});
+test('reject unsupported asset protocols, invalid timestamps, and duplicate observation ids',()=>{assert.equal(CreativeMemorySchema.safeParse({...sample,asset:{...sample.asset,url:'javascript:alert(1)'}}).success,false);assert.equal(CreativeMemorySchema.safeParse({...sample,annotations:[{...sample.annotations[0],endSeconds:70}]}).success,false);assert.equal(CreativeMemorySchema.safeParse({...sample,annotations:[sample.annotations[0],sample.annotations[0]]}).success,false);});
+test('version-specific reference keeps target and source time',()=>{assert.equal(annotationLink(sample.asset,5),'https://example.com/v1#t=5');});
