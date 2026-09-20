@@ -64,11 +64,6 @@ export interface InstagramMetrics {
   shares: number;
   saves: number | null;
   avgWatchTimeSeconds: number | null;
-  totalWatchTimeSeconds: number | null;
-  skipRatePct: number | null;
-  reach: number | null;
-  totalInteractions: number | null;
-  reposts: number | null;
 }
 
 export interface InstagramSnapshot {
@@ -78,17 +73,12 @@ export interface InstagramSnapshot {
 }
 
 const INSIGHT_METRICS = [
-  'reach',
   'likes',
   'comments',
   'shares',
   'saved',
   'views',
-  'total_interactions',
   'ig_reels_avg_watch_time',
-  'ig_reels_video_view_total_time',
-  'reels_skip_rate',
-  'reposts',
   'total_views',
   'total_likes',
   'total_comments',
@@ -231,8 +221,6 @@ export class MetaInstagramClient {
 
     // Instagram reports both Reel watch-time metrics in milliseconds.
     const avgWatchMs = pick('ig_reels_avg_watch_time');
-    const totalWatchMs = pick('ig_reels_video_view_total_time');
-
     return {
       views: integer('views', 'total_views'),
       likes: integer('likes', 'total_likes'),
@@ -240,11 +228,6 @@ export class MetaInstagramClient {
       shares: integer('shares'),
       saves: pick('saved') === null ? null : integer('saved'),
       avgWatchTimeSeconds: avgWatchMs === null ? null : avgWatchMs / 1000,
-      totalWatchTimeSeconds: totalWatchMs === null ? null : totalWatchMs / 1000,
-      skipRatePct: pick('reels_skip_rate'),
-      reach: pick('reach'),
-      totalInteractions: pick('total_interactions'),
-      reposts: pick('reposts'),
     };
   }
 
