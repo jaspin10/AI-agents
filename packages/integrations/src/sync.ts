@@ -19,12 +19,13 @@ import { YouTubeDataClient } from './youtube/data-client.js';
 import { YouTubeAnalyticsClient } from './youtube/analytics-client.js';
 import { StripeClient } from './stripe/client.js';
 import { MetaInstagramClient } from './meta/instagram-client.js';
+import { MetaFacebookClient } from './meta/facebook-client.js';
 import { loadHypothesisTags, tagFor, type HypothesisTagMap } from './hypothesis-tags.js';
 
 const logger = createLogger('sync');
 
-type PlatformName = 'tiktok' | 'youtube' | 'instagram' | 'stripe';
-const ALL_PLATFORMS: PlatformName[] = ['tiktok', 'youtube', 'instagram', 'stripe'];
+type PlatformName = 'tiktok' | 'youtube' | 'instagram' | 'facebook' | 'stripe';
+const ALL_PLATFORMS: PlatformName[] = ['tiktok', 'youtube', 'instagram', 'facebook', 'stripe'];
 
 /**
  * YouTube Shorts vs regular videos (locked 2026-09-10, Jas): the Data API has
@@ -306,6 +307,51 @@ async function syncInstagram(writer: Writer, csvTags: HypothesisTagMap, dbTags: 
   }
 }
 
+async function syncFacebook(writer: Writer, csvTags: HypothesisTagMap, dbTags: HypothesisTagMap): Promise<void> {
+  const config = readMetaConfig();
+  if (config === null) throw new Error('Meta env vars not configured.');
+
+  const client = new MetaFacebookClient(config);
+  const snapshot = await client.snapshot();
+  logger.info(
+    `facebook: ${snapshot.videos.length} videos/reels${snapshot.followerCount === null ? '' : `, ${snapshot.followerCount} followers`}`
+  );
+
+  const now = new Date();
+  const capturedAt = now.toISOString();
+  const capturedDate = capturedAt.slice(0, 10);
+
+  for (const video of snapshot.videos) {
+    const hypothesis = tagFor(csvTags, 'facebook', video.id) ?? dbTags.get(`facebook:${video.id}`) ?? null;
+    await writer.content({
+      platform: 'facebook',
+      platformVideoId: video.id,
+      title: video.title ?? video.description,
+      hook: null,
+      format: null,
+      hypothesis,
+      postedAt: video.createdTime,
+    });
+    await writer.performance({
+      id: randomUUID(),
+      contentId: video.id,
+      platform: 'facebook',
+      capturedAt,
+      capturedDate,
+      metrics: {
+        views: video.metrics.views,
+        likes: video.metrics.likes,
+        comments: video.metrics.comments,
+        shares: video.metrics.shares,
+        saves: null,
+        avgWatchTimeSeconds: video.metrics.avgWatchTimeSeconds,
+        retentionPct: null,
+        followersAtCapture: snapshot.followerCount,
+      },
+    });
+  }
+}
+
 async function syncStripe(writer: Writer): Promise<void> {
   const config = readStripeConfig();
   if (config === null) throw new Error('Stripe env vars not configured.');
@@ -345,6 +391,7 @@ async function main(): Promise<boolean> {
       if (platform === 'tiktok') await syncTikTok(writer, csvTags, dbTags);
       else if (platform === 'youtube') await syncYouTube(writer, options.dryRun, csvTags, dbTags);
       else if (platform === 'instagram') await syncInstagram(writer, csvTags, dbTags);
+      else if (platform === 'facebook') await syncFacebook(writer, csvTags, dbTags);
       else await syncStripe(writer);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
