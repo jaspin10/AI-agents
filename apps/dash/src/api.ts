@@ -37,10 +37,20 @@ export interface Me {
 }
 
 /**
+ * Same-domain (2026-09): every route this app owns lives under
+ * app.basePath('/analytics') on the server (apps/api/src/index.ts). The
+ * browser is at portal.frenchwithjas.ca/analytics/..., so every fetch below
+ * must carry the same prefix — a bare fetch('/api/me') resolves against the
+ * ORIGIN root (portal.frenchwithjas.ca/api/me), not this app, and 404s.
+ */
+const API_BASE = '/analytics';
+
+/**
  * X0: the API authenticates every call with its httpOnly session cookie, set
  * by /auth/handoff after the portal hands us a token. A 401 means the cookie
- * is gone or expired — reload "/" and the server bounces us to the portal,
- * where one click on Analytics brings us back. There is no login screen here.
+ * is gone or expired — send the browser to the portal's own root (NOT
+ * API_BASE — this is the one place we deliberately leave the dash), where
+ * one click on Analytics brings us back. There is no login screen here.
  */
 function bounceToPortal(): never {
   window.location.assign('/');
@@ -48,7 +58,7 @@ function bounceToPortal(): never {
 }
 
 export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+  const response = await fetch(API_BASE + path);
   if (response.status === 401) bounceToPortal();
   if (response.status === 403) throw new Error('Your portal role cannot open this.');
   if (!response.ok) throw new Error(`${path} → ${response.status}`);
@@ -57,7 +67,7 @@ export async function getJson<T>(path: string): Promise<T> {
 
 /** JSON write with the same 401/403 handling. Returns the parsed body; throws with the server's error code on 4xx. */
 export async function sendJson<T>(method: 'PUT' | 'POST', path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(API_BASE + path, {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -203,7 +213,7 @@ export interface RefEcho {
 }
 
 export async function lookupRef(platformVideoId: string): Promise<RefEcho | null> {
-  const response = await fetch(`/api/analysis/ref/${encodeURIComponent(platformVideoId)}`);
+  const response = await fetch(`${API_BASE}/api/analysis/ref/${encodeURIComponent(platformVideoId)}`);
   if (response.status === 401) bounceToPortal();
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`ref lookup → ${response.status}`);
@@ -432,7 +442,7 @@ export type PortalCountsPayload =
 /** 502 from the API means the portal side is down/not deployed — that is a state to render, not an exception. */
 export async function getPortalCounts(refresh = false): Promise<PortalCountsPayload> {
   const path = `/api/kpis/portal${refresh ? '?refresh=1' : ''}`;
-  const response = await fetch(path);
+  const response = await fetch(API_BASE + path);
   if (response.status === 401) bounceToPortal();
   if (response.status === 403) throw new Error('Your portal role cannot open this.');
   if (response.status === 502) return (await response.json()) as PortalCountsPayload;
