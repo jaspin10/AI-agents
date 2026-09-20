@@ -51,3 +51,12 @@ test('research dedup key is atomic on both creation and editing',async()=>{
   await assert.rejects(save(b,'same',1,'00000000-0000-4000-8000-000000000075'),/unique constraint/);
  }finally{await db.close();}
 });
+test('generation jobs refuse duplicate requests and concurrent work for one brief',async()=>{
+ const db=await database();try{
+  const id='00000000-0000-4000-8000-000000000080',job='00000000-0000-4000-8000-000000000082';await db.exec('set role service_role');
+  await db.query('select save_studio_record($1,$2,$3,0,$4,$5,$6)',[id,'brief',id,'{}','test','00000000-0000-4000-8000-000000000081']);
+  const insert=j=>db.query("insert into studio_jobs(id,record_id,stage,actor) values($1,$2,'hooks','test')",[j,id]);await insert(job);await assert.rejects(insert(job),/unique constraint/);
+  await assert.rejects(insert('00000000-0000-4000-8000-000000000083'),/unique constraint/);
+  await db.query("update studio_jobs set status='complete' where id=$1",[job]);await insert('00000000-0000-4000-8000-000000000083');
+ }finally{await db.close();}
+});
