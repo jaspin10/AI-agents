@@ -46,6 +46,13 @@ const logger = createLogger('api');
  * Every route below lives under app.basePath('/analytics') so the app never
  * needs to know it's being proxied — paths, the session cookie, and every
  * redirect back into this app are prefixed once, here.
+ *
+ * IMPORTANT: `portalUrl` below (the "no session" bounce target) must NEVER
+ * point at anything under /analytics — that path is now claimed by the
+ * Vercel proxy and forwards straight back to this same app, so bouncing an
+ * unauthenticated visitor there is an infinite redirect loop, not an escape
+ * hatch. It must be a portal path the proxy does not intercept (the portal
+ * root works). Caused a real outage 2026-09-20 — do not reintroduce.
  */
 
 const DASH_ROLES = ['owner', 'marketing'] as const;
@@ -69,7 +76,10 @@ const BASE_PATH = '/analytics';
 
 const tokenSecret = process.env['DASH_TOKEN_SECRET'];
 const tokenSecretOk = tokenSecret !== undefined && tokenSecret.trim().length >= 32;
-const portalUrl = process.env['PORTAL_URL'] ?? 'https://portal.frenchwithjas.ca/analytics';
+// Portal ROOT, not /analytics — see the IMPORTANT note above. The Railway
+// PORTAL_URL variable is the source of truth in production; this default
+// only matters for a host where it's unset.
+const portalUrl = process.env['PORTAL_URL'] ?? 'https://portal.frenchwithjas.ca/';
 const onRailway = process.env['RAILWAY_ENVIRONMENT'] !== undefined;
 
 if (!tokenSecretOk) {
