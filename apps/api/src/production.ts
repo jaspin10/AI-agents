@@ -15,7 +15,9 @@ export function createProductionRouter(deps:StudioDependencies):Hono<StudioEnv> 
  app.put('/:id',async c=>{
   const id=idOf(c.req.param('id')),e=SaveEnvelope.parse(await c.req.json()),old=await deps.store.get('production',id);
   const body=editProduction(e.body,old?ProductionBodySchema.parse(old.body):null);
-  if(!await approvedBrief(body.briefId,body.briefVersion))return c.json({error:'approved_brief_required'},400);
+  const reference=await deps.store.revision('brief',body.briefId,body.briefVersion);
+  if(!reference)return c.json({error:'brief_not_found'},404);
+  if(body.stage!=='selected'&&!await approvedBrief(body.briefId,body.briefVersion))return c.json({error:'approved_brief_required'},400);
   return c.json(await deps.store.save({id,kind:'production',entityKey:body.briefId,expectedVersion:e.expectedVersion,requestId:e.requestId,body,actor:c.get('auth')!.email}));
  });
  app.post('/:id/advance',async c=>{

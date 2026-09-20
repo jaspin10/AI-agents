@@ -18,13 +18,14 @@ export function editProduction(input:unknown,old:ProductionBody|null):Production
  for(const r of v.requests){const asset=v.assets.find(a=>a.version===r.assetVersion);if(!asset||r.atSeconds!==null&&r.atSeconds>asset.durationSeconds||r.status==='resolved'&&!r.resolution.trim())throw new Error('invalid_revision_request');}
  if(new Set(v.requests.map(r=>r.id)).size!==v.requests.length)throw new Error('invalid_revision_request');
  if(old){
-  if(v.briefId!==old.briefId||v.briefVersion!==old.briefVersion)throw new Error('brief_version_locked');
+  if(v.briefId!==old.briefId||v.briefVersion!==old.briefVersion&&old.stage!=='selected')throw new Error('brief_version_locked');
   for(const a of old.assets)if(JSON.stringify(v.assets.find(x=>x.version===a.version))!==JSON.stringify(a))throw new Error('asset_version_immutable');
   for(const r of old.requests)if(!v.requests.some(x=>x.id===r.id))throw new Error('revision_history_required');
   if(['posted','reviewed'].includes(old.stage))throw new Error('posted_item_locked');
  }
  const assetChanged=!!old&&old.currentAssetVersion!==v.currentAssetVersion;
- return {...v,checklist:assetChanged?emptyChecklist():v.checklist,stage:old?.stage==='approved'||assetChanged&&['filmed','edit_review'].includes(old?.stage??'')?'edit_review':old?.stage??'selected',approval:null};
+ const briefChanged=!!old&&old.briefVersion!==v.briefVersion;
+ return {...v,checklist:assetChanged||briefChanged?emptyChecklist():v.checklist,stage:old?.stage==='approved'||assetChanged&&['filmed','edit_review'].includes(old?.stage??'')?'edit_review':old?.stage??'selected',approval:null};
 }
 export function advanceProduction(body:ProductionBody,target:ProductionBody['stage'],actor:string,role:string,version:number,briefApproved:boolean):ProductionBody {
  const allowed:Partial<Record<ProductionBody['stage'],ProductionBody['stage']>>={selected:'brief_approved',brief_approved:'filmed',filmed:'edit_review',edit_review:'approved',posted:'reviewed'};

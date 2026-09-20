@@ -29,3 +29,10 @@ test('finite requests require valid asset timecodes and explicit resolution; blo
  assert.throws(()=>advanceProduction({...b,stage:'edit_review'},'approved','Jas','owner',3,true),/unresolved_revisions/);
  assert.throws(()=>advanceProduction({...b,blockers:['Permission pending']},'brief_approved','Jas','owner',3,true),/unresolved_blockers/);
 });
+
+test('selected concept can follow a newer brief revision, then approved handoff locks it',()=>{
+ const i=input(),selected=editProduction(i,null);
+ const updated=editProduction({...i,briefVersion:5},selected);assert.equal(updated.briefVersion,5);assert.equal(updated.stage,'selected');assert.ok(updated.checklist.every(c=>c.status==='pending'));
+ const locked=advanceProduction(updated,'brief_approved','Jas','owner',2,true);
+ assert.throws(()=>editProduction({...i,briefVersion:6},locked),/brief_version_locked/);
+});
