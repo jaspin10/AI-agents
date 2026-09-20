@@ -11,9 +11,10 @@ Status: separate, working project. The analyst pipeline, suggestions agent, Slac
 - `02-built-status.md` — what was built in M1–M5. **History, not a plan** — its "open items" lists are superseded by `x-series.md`
 - `punch-list.md` — M5's punch list. Closed 2026-09-09; kept for the debugging history
 - `working-style.md` — quirks specific to this repo (jsh, heredocs, generics, packages/shared)
+- `guardian.md` — Portal Guardian: the reliability/self-repair agent for the student portal (DETECT/GROUP/TRIGGER lives in the portal repo; the investigation/repair agent, verifier and Robot Student are planned here) — **spec only, no code yet.** A separate domain from the X-series (marketing/sales) — not X- or Y-numbered.
 
 ## Sibling project
-The portal repo (`jaspin10/french-with-jas-portal`) has its own `docs/spec/` — a completely separate app/DB/stack. Don't cross-reference code between them; the only real link is the dashboard tab (see `portal-integration.md`).
+The portal repo (`jaspin10/french-with-jas-portal`) has its own `docs/spec/` — a completely separate app/DB/stack. Don't cross-reference code between them; the real links are the dashboard tab (see `portal-integration.md`) and, now, Portal Guardian (see `guardian.md`).
 
 ## How updates work
 When something changes here, edit the ONE file it belongs to. Never re-paste a spec blob into chat.
