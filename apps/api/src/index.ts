@@ -27,9 +27,9 @@ const logger = createLogger('api');
  *   1. The portal's `dash-token` Edge Function checks the caller's real
  *      Supabase session, reads profiles.role, and mints a 60-second
  *      HS256 "handoff" token signed with DASH_TOKEN_SECRET.
- *   2. The browser lands on GET /auth/handoff?token=… . We verify the
- *      signature, check the claims, burn the jti (single use), and set our
- *      own httpOnly session cookie (12h, also HS256 with the same secret).
+ *   2. The browser lands on GET /analytics/auth/handoff?token=… . We verify
+ *      the signature, check the claims, burn the jti (single use), and set
+ *      our own httpOnly session cookie (12h, also HS256 with the same secret).
  *   3. Every later request is authenticated by that cookie. Roles gate each
  *      route (see requireRole). Nothing is re-verified against the portal.
  *
@@ -40,6 +40,12 @@ const logger = createLogger('api');
  * learn@frenchwithjas.ca), and DASH_PASSWORD retired the same day. The
  * interim HTTP Basic fallback (`/auth/basic`) that bridged the switchover
  * is gone — this is the permanent shape.
+ *
+ * Same-domain (2026-09): the portal now reverse-proxies portal.frenchwithjas.ca/analytics/*
+ * straight through to this service (see docs/spec/portal-integration.md).
+ * Every route below lives under app.basePath('/analytics') so the app never
+ * needs to know it's being proxied — paths, the session cookie, and every
+ * redirect back into this app are prefixed once, here.
  */
 
 const DASH_ROLES = ['owner', 'marketing'] as const;
@@ -58,6 +64,8 @@ const TOKEN_AUDIENCE = 'analyst-dash';
 const SESSION_COOKIE = 'dash_session';
 const SESSION_TTL_SECONDS = 12 * 60 * 60; // 12h — locked 2026-09-10
 const HANDOFF_JTI_REMEMBER_SECONDS = 5 * 60; // ≥ token lifetime; bounds the replay set
+/** Every path this app owns is under this prefix once the portal proxies to it (same-domain, 2026-09). */
+const BASE_PATH = '/analytics';
 
 const tokenSecret = process.env['DASH_TOKEN_SECRET'];
 const tokenSecretOk = tokenSecret !== undefined && tokenSecret.trim().length >= 32;
@@ -123,7 +131,7 @@ async function issueSession(c: Context<Env>, who: { sub: string; email: string; 
     httpOnly: true,
     secure: onRailway,
     sameSite: 'Lax',
-    path: '/',
+    path: BASE_PATH,
     maxAge: SESSION_TTL_SECONDS,
   });
 }
@@ -168,7 +176,13 @@ function requireRole(...roles: DashRole[]): MiddlewareHandler<Env> {
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
 
-const app = new Hono<Env>();
+/**
+ * Same-domain (2026-09): basePath prefixes every route (/api/*, /auth/*,
+ * /assets/*, the SPA catch-all) with /analytics so the app matches exactly
+ * what the portal's Vercel rewrite forwards unmodified. Nothing below needs
+ * to know about the prefix again — Hono strips it before matching.
+ */
+const app = new Hono<Env>().basePath(BASE_PATH);
 
 /**
  * Single-origin hosting (M4.5 Step 4): this process serves the built dash as
@@ -215,7 +229,7 @@ app.get('/auth/handoff', async (c) => {
     }
     await issueSession(c, { sub: parsed.data.sub, email: parsed.data.email, role: parsed.data.role });
     logger.info(`handoff ok: ${parsed.data.role} ${parsed.data.email}`);
-    return c.redirect('/', 302);
+    return c.redirect(`${BASE_PATH}/`, 302);
   } catch (error) {
     // error.name only (JwtTokenExpired, JwtTokenSignatureMismatched, …): hono's
     // message embeds the token itself, and tokens must not land in Railway logs.
@@ -821,7 +835,8 @@ app.get('/api/logs', requireRole('owner'), async (c) => {
  * Static dash. Paths are relative to the process CWD, which on Railway is the
  * repo root (the start command is `node apps/api/dist/index.js`). Registered
  * AFTER /api/* so an API route always wins. No session → straight to the
- * portal, nothing else (locked 2026-09-10).
+ * portal, nothing else (locked 2026-09-10). All of this is already under
+ * BASE_PATH via app.basePath() above.
  */
 const DASH_DIR = './apps/dash/dist';
 
@@ -830,9 +845,19 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-app.use('/assets/*', serveStatic({ root: DASH_DIR }));
+app.use(
+  '/assets/*',
+  serveStatic({
+    root: DASH_DIR,
+    // basePath() strips the prefix for route matching but c.req.path still
+    // carries it, so serveStatic would otherwise look for
+    // apps/dash/dist/analytics/assets/... instead of apps/dash/dist/assets/...
+    rewriteRequestPath: (path) => path.replace(new RegExp(`^${BASE_PATH}`), ''),
+  })
+);
 
-// SPA fallback — every non-API path returns index.html.
+// SPA fallback — every non-API path under /analytics returns index.html, so
+// a direct load or refresh on /analytics/metrics etc. still boots the app.
 app.get('*', async (c) => {
   try {
     const html = await readFile(`${DASH_DIR}/index.html`, 'utf8');
