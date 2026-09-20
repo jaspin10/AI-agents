@@ -22,3 +22,4 @@ export * from './correlation.js';
 export * from './slack.js';
 export * from './budget.js';
 export * from './creative-memory.js';
+export * from './research.js';
