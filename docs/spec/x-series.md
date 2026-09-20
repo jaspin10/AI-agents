@@ -314,3 +314,190 @@ Consequence, recorded so it resurfaces instead of quietly dying: **X4 and X5 hav
 - Rebuilding the dash natively inside the portal (Option B)
 - A separate sales product or repo — D16 puts X7 inside this dash
 - A standalone hypothesis taxonomy exercise — dropped, see X-B3
+
+---
+
+## Track C — proposed video-improvement phases X10–X19
+
+**Added 2026-09-19 (Pacific), at Jas's request. Status: PROPOSED, NOT IMPLEMENTED.** This extends the existing plan; it does not renumber X0–X9, reopen locked decisions automatically, or authorize deployment. The purpose is to improve the videos people actually make, not multiply dashboards. Each phase needs its own scoped implementation PR, acceptance checks and human review.
+
+**Review boundary:** the complete X-series plan and the principal Analysis, Suggestions, metrics and correlation source files were reviewed at `milestone-2` commit `8c7dc2568f841bf7be550be1942484cf5f92e720`. This was a repository/design review, not a fresh analyst-database audit, production deploy verification, or a viewing of the video catalogue. Historical counts above are not current measurements. The current connection in this ChatGPT project is portal Supabase only; the historical X1 MCP-access note is not permission to run analyst SQL against the portal.
+
+### Diagnosis: the missing creative loop
+
+The existing loop is substantially built: collect platform snapshots → people describe videos → calculate patterns → suggest ideas → display outcomes. The proposed loop adds: understand audience need → choose a learning/business goal → prepare a filmable brief → review the actual edit → run a fair comparison → retain the lesson for the next brief.
+
+Code-level gaps found in this review:
+- `packages/agents/analyst/src/index.ts` reads content, performance and brand chunks for Suggestions, but not the full X1 analysis records or the stored X6 insight reports. `prompts.ts` sends top/bottom title-and-metric summaries, not a verified transcript or shot timeline. X6 being built does not mean the next-video generator consumes it.
+- `packages/agents/analyst/src/analysis.ts` uses `(likes + comments + shares) / views`, while X2/X6 include available saves. It ranks a single mixed-platform array before selecting the top/bottom ten, despite the prompt's within-platform rule, and still joins by native video ID rather than the canonical UUID. These are concrete consistency risks; their actual production impact has not been measured here.
+- `apps/dash/src/Analysis.tsx` is structured human input, not automatic audiovisual understanding. It captures broad format/hook/CTA fields, but no verified word-level transcript, scene timeline, first payoff, or edit version.
+- `packages/shared/src/correlation.ts` scores engagement only and auto-matches suggestion outcomes by tag/format. That is useful exploratory evidence, but is not proof that one particular suggestion produced a particular video. The existing Posted/Skipped buttons in `Suggestions.tsx` already work and should not be rebuilt as a new feature.
+- The X1 Shorts classification note uses a ≤60-second duration heuristic. Current YouTube rules include eligible square/vertical videos up to three minutes [R1]. Duration alone is insufficient; changing the threshold to 180 seconds alone would still misclassify videos.
+
+**Statistical correction for future wording:** cross-platform twins hold more creative content constant, but not audience, distribution, timing, packaging or metric definitions. They are observational comparisons, not controlled experiments. Eight videos is the existing reporting floor, not a statistical-confidence guarantee. No new phase may turn those heuristics into causal proof or a fabricated confidence percentage.
+
+### How this fits X0–X9 and Track B
+
+| Existing area | Next action, not a rebuild |
+| --- | --- |
+| X0 / X-B4 | Preserve portal-only auth, server-side role checks and secret separation. Verify any outstanding credential cleanup before declaring it done. |
+| X1 | Keep analysis and pairing; extend progressively in X11. Verify current coverage rather than repeating September 12 counts. No separate taxonomy project. |
+| X2 | Reuse pure metric functions; X10 fixes inconsistency/provenance and supports fair comparison windows. |
+| X3 / X-B2 | Keep enrollment incompleteness visible. No historical backfill and no invented video-to-enrollment attribution. |
+| X4 / X5 / X-B5 | Still paused under D20. Before restarting, specify exact permitted endpoints, scopes and usable metrics; approval alone is not a guarantee of any requested field. X10–X18 do not wait for TikTok approval. |
+| X6 | Keep its numeric engine, caution block and current score; feed verified evidence into better Suggestions. Any changed scoring or matching contract needs explicit approval. |
+| X7 | Remains the sales slice of this app. X12 can start with manually redacted audience questions; X19 later consumes approved aggregate sales feedback. |
+| X8 | Make hardening a release gate throughout this extension, not something deferred until every new feature ships. |
+| X9 / X-B1 | Instagram is recorded as live. Repository state is ahead of parts of the older Facebook checklist; verify actual deployed commit, migration and logs before changing the live-status claim. Do not restart Meta access work. |
+
+### X10 — Evidence foundation and Suggestions v2
+
+**Priority: first. Dependencies: existing X1/X2/X6.** Make the present system agree with itself before teaching it more creative rules.
+
+Scope:
+- One shared calculation contract across Metrics, Insights and Suggestions; canonical `content_uuid` joins; platform-specific ranking before sampling evidence; preserve metric units and which engagement components were actually observed.
+- Consume X1 descriptions/hooks/format plus relevant stored X6 findings, cautions, counterexamples and dates. Every recommendation cites the actual content UUIDs and insight-run ID supplied to its prompt; validate those references. Do not manufacture source-video edges merely because tags match.
+- Store metric provenance: native name, endpoint/source, observation window, capture time, denominator, definition version, and availability (`observed`, `unsupported`, `not_authorized`, `missing`, `error`). Observed zero must remain distinct from unknown. Do not infer an API's capabilities just because all stored values happen to be zero.
+- Compare equivalent post ages and comparable formats/durations, with ad exposure marked known/unknown. Reuse X2's honest missing-history labels. A daily calendar snapshot is not an exact first-24-hour observation; timestamp-level precision needs timestamped captures.
+- Audit Shorts classification against verified platform content type where available [R1/R3]; allow a human-reviewed override with provenance, and leave uncertain cases labelled uncertain. Audit views versus engaged views and watch-time denominators [R2] before combining historical measurements.
+
+Acceptance: fixture tests show the same metric in all three surfaces; native-ID collisions cannot cross-link videos; no global cross-platform top-ten ranking; unsupported values never become measured zero; a recommendation can be traced to its actual evidence. Missing data produces a weaker recommendation or explicit abstention, not a confident story.
+
+### X11 — Creative memory: understand what is in each video
+
+**Priority: high. Dependencies: X10; media processing requires the asset/privacy decision below.** Extend Analysis instead of adding another manual form people must duplicate.
+
+Start small: record intended audience/learner level, topic, purpose, spoken language mix, duration, opening line, first useful payoff, CTA position, and a link to the approved asset. These are descriptive fields attached to X1, not a revived independent hypothesis taxonomy. Keep idea origin separate from who wrote, filmed and edited.
+
+Later, authorized source-file upload or an approved media source can produce a timestamped transcript and scene notes: spoken hook, on-screen hook, pauses, examples, B-roll, text density and CTA. AI proposes annotations; a human accepts/corrects them. Punjabi/French/English code-switching and French pronunciation require review. Missing audio, poor transcription and uncertain visual observations must be visible; never invent a transcript from the post title.
+
+Store an asset/version fingerprint, annotator/model version, review state and source timestamps. A new edit invalidates the old timestamped review. Analyse approved samples first; do not automatically process the whole archive.
+
+Acceptance: Jas/Eknoor can correct a transcript or tag without losing provenance; a brief can retrieve relevant examples and non-examples; each timestamped observation opens the matching version and moment. Manual-only use remains possible without buying or enabling a video model.
+
+### X12 — Audience questions and topic opportunities
+
+**Priority: high. Dependencies: X10; manual-first, not blocked by X7.** Answer “What should we help our viewers with?” before asking “What format got views?”
+
+Build a small research inbox of approved comments, recurring learner questions, and redacted sales objections. Begin with manual text/link entry. Direct comment/WhatsApp ingestion is a separate permission and source-format task; the current read-only video scopes must not be assumed to authorize it.
+
+Cluster questions such as speaking hesitation, pronunciation confusion or course-fit uncertainty; retain source, date, context and verified occurrence counts. Separate learning questions, purchase questions, general reactions and spam. These examples are proposed categories, not claims about the current inbox. Do not infer a commenter's immigration status or other sensitive personal traits.
+
+Recommend opportunities using stated audience relevance, genuine question frequency, recent coverage, teaching usefulness and production effort. Show reasons and evidence rather than an unexplained “viral score.” Allow a small human-selected reference library of public creator videos to study structures; do not copy scripts, scrape private data, or invent competitors' retention, spend or sales.
+
+Acceptance: each topic links to real authorized evidence or is clearly marked “creative exploration”; duplicate messages do not inflate demand; marketing sees redacted themes, not private conversations. One chosen topic can become an X13 brief.
+
+### X13 — Hook, script and teaching-brief lab
+
+**Priority: highest direct creative value. Dependencies: X10 plus lightweight X11; X12 enriches it.** Turn a suggestion into something Jas can actually film and an editor can understand.
+
+For a human-selected topic, prepare a versioned brief with one intended viewer, one learning outcome, a platform, target duration, one primary success measure and one next action. Offer a few genuinely different hooks: demonstration/challenge, relatable problem, or specific useful result. Explain the audience fit and cite own-channel examples when available; never promise a view count.
+
+After a human chooses a hook, draft the spoken script, first-frame text, visual beats, B-roll needs, subtitles, payoff and CTA. Use Punjabi/English/French only as chosen for that brief. Include both a complete lesson and space for the learner to try, rather than sacrificing clarity for constant cuts. TikTok's hook/body/close guidance is an optional creative scaffold from advertising, not proof of organic performance for FWJ [R6].
+
+Extend the existing banned-topic and brand-voice gates to draft outputs, then add checks for French accuracy, learner-level fit, misleading promises and unsupported course/TCF/immigration claims. Prices, schedules, links and policy claims require an approved dated source or human confirmation. Human review remains mandatory; the AI does not publish.
+
+Acceptance: a selected suggestion becomes a ready-to-film brief with sources, clear visuals and a meaningful ending; Jas can edit and approve it; rejected hooks/revision reasons are retained. This phase proposes human-reviewed drafting and therefore requires updating the old generator's “never write content” contract explicitly, without adding a publish capability.
+
+### X14 — Production board and pre-publication edit review
+
+**Priority: high. Dependencies: X11/X13; manual checks can ship first.** Connect research and scripts to the actual edit, rather than losing feedback in messages.
+
+Use one production item per creative concept, with a lightweight path: selected → brief approved → filmed → edit review → approved → posted → reviewed. Track versions, owner, due date, asset links, blockers and requested changes. This extends the existing suggestion status; it does not replace Posted/Skipped or confuse an approved draft with a posted video.
+
+Proposed handoff: Eknoor prepares evidence and the brief; Jas approves teaching/content and records; Loop Studio edits; Jas or an authorized reviewer approves the export. Keep these responsibilities configurable. Loop Studio remains a collaborator label, not an automatically granted portal role or a recipient of revenue/private lead data.
+
+A draft-review checklist covers intelligible speech, music masking speech, correct French/subtitles, safe text placement for the chosen platform, readable examples, hook-to-payoff consistency, unnecessary repetition, rights/consent and the single CTA. When an actual reviewed video is available, attach timecoded comments and version-specific fixes. Distinguish measurable defects from editorial suggestions; do not claim a retention drop before observing viewers.
+
+Acceptance: an editor gets a usable brief and a finite revision list; every approval names the exact asset version; rights/consent and factual checks cannot silently disappear on revision. No automated editing, rendering or upload service is required for the first release.
+
+### X15 — Retention and moment-by-moment diagnosis
+
+**Priority: high when data is available. Dependencies: X10/X11, plus verified analytics access.** Explain where a video may lose or regain attention, not merely its average engagement.
+
+Start with owned YouTube videos for which the account can actually retrieve retention data. Test the Analytics API report shape, scopes and coverage before committing to the UI [R2/R3]. An authorized export/manual import is an optional fallback when available, labelled by source and period. Add other platforms only after verifying equivalent metrics; X4 is not a dependency for the YouTube slice.
+
+Align genuine retention samples with the verified transcript/scene timeline and distinguish “observed dip here” from “possible explanation: lengthy setup.” Spikes may reflect rewatching because a section is useful OR confusing [R4]. Compare with similar-length, similar-purpose content and report missing intervals/sample limitations.
+
+Keep hook hold, average watch time, average percentage viewed, completion, replay and saves/shares separate when actually exposed. Never reconstruct a retention curve from average watch time, infer completion from average duration, or treat a skip rate as retention. A source video's duration or metric denominator can change how the number should be read.
+
+Acceptance: a reviewer can inspect the underlying data and the corresponding moment; the system proposes a specific next-edit test, not a causal verdict. Without a real curve it says “timestamp-level audience data unavailable” and may offer only clearly labelled editorial feedback.
+
+### X16 — Creative experiment register
+
+**Priority: high. Dependencies: X10/X13; X15 is optional enrichment.** Replace “this went viral, repeat everything” with deliberate, interpretable tests.
+
+Before posting, register the hypothesis, target audience, platform, format, one principal creative change, chosen metric, observation window, eligible videos and review rule. Possible tests: demonstration-first versus explanation-first; early worked example versus long setup; two CTA wordings. These are proposals to test, not established winners.
+
+Use repeated matched episodes where practical; show audience/timing/duration/paid-exposure differences. Organic posts published at different times are observational trials, not randomized A/B tests. Cross-platform twins are likewise not randomized. Record inconclusive and negative results, not just wins. Show sample sizes and uncertainty; do not call the current n≥8 floor proof. Native simultaneous tests may be recorded when genuinely available; YouTube title/thumbnail tests have eligibility limits and do not currently cover Shorts [R5].
+
+Require equal-age outcomes and a preset evaluation point; account for thin history and avoid declaring a winner after every daily fluctuation. Do not mix incompatible view definitions or boosted and unknown-exposure videos into a purported organic comparison. Any causal/statistical-significance claim needs an appropriate experimental design and reviewed method.
+
+Acceptance: each experiment yields “adopt provisionally,” “repeat,” “stop,” or “inconclusive,” with evidence and limitations. Implementation needs the outcome-linking decision below so a specific brief/version is associated with the correct posted videos rather than merely a shared format tag.
+
+### X17 — Platform packaging and repeatable series
+
+**Priority: medium; useful after the brief workflow. Dependencies: X11/X13/X16.** Reuse a strong lesson without blindly uploading the identical package everywhere.
+
+Keep a parent concept with linked platform-specific versions: hook, length, captions, cover/first frame, description, title where relevant, CTA, publish record and experiment link. Preserve X1 twins for genuinely comparable posts, but label materially different edits as variants rather than identical twins.
+
+Build small repeatable series, for example a speaking challenge, a common-mistake correction or a real-life French scenario. Those are candidate series, not a claim about what already performs best. Use each episode's learner promise and production requirements to make batching possible. Suggest sequels or shorter extracts from verified useful moments, with human review; do not recycle a high-view clip solely because of its views.
+
+Packaging review must match the video: no misleading title or cover. Native YouTube title/thumbnail test results can be recorded for eligible long-form uploads; this is not an API promise or a Shorts feature [R5]. Refresh platform guidance at implementation rather than baking today's recommendations permanently into prompts.
+
+Acceptance: one approved concept can produce distinguishable, human-approved platform briefs; outcomes roll up without counting twins as independent creative experiments; the schedule balances useful repetition with new ideas. Publishing remains manual.
+
+### X18 — Evidence-backed creative playbook and weekly decisions
+
+**Priority: medium, after real experiments. Dependencies: X10/X16, enriched by X12–X17.** Make lessons persist without turning a handful of successes into permanent rules.
+
+Store learning cards with the context, proposed principle, source videos/experiments, counterexamples, observation date, confidence expressed in plain language and next review date. Separate editorial preferences from measured findings. A human can promote, revise or retire a card; newer contradictory evidence must be visible.
+
+Suggestions retrieves this playbook plus the actual experiment evidence, accepted edits, and reasons ideas were skipped. Deduplicate near-identical proposals. Reserve a human-chosen exploration slot rather than only cloning historic high performers. A recent popular post is not a universal rule for all platforms or learner levels.
+
+Produce one review view answering: what to repeat, what to change, what to test, and what remains unknown. Attach an owner and next production item. Reuse existing Slack delivery only after explicit configuration; do not silently change the current manual-run Slack behaviour or create another cron service by default.
+
+Acceptance: a completed experiment can change the next proposed brief; every asserted lesson opens its evidence; unsupported or stale rules can be retired. Track real workflow usefulness, including filming-ready briefs, turnaround/revisions, experiments completed, and age-matched performance. Generated suggestion count alone is not success.
+
+### X19 — Qualified-response feedback from the sales slice
+
+**Priority: later. Dependencies: X7, X10 and an approved privacy/permissions contract.** Help the creative team attract suitable learners without turning the marketing dashboard into a private CRM.
+
+Begin with aggregate, redacted feedback from Harman: recurring course-fit questions, expectation mismatches, objections and voluntarily stated content references. Define what “qualified inquiry” means with the business before counting it. A request for course information is not the same as a like, a comment, a booking or an enrollment.
+
+Feed approved themes into X12/X13, so videos answer real uncertainties and set accurate expectations. Marketing receives themes only by default; lead identities, conversation bodies, enrollment totals and revenue do not become visible through prompts, exports or this new panel. Do not pool FWJ with unrelated personal-vlog or product-brand data.
+
+**Boundary:** this phase does NOT implement video-level enrollment/revenue attribution, join the two Supabase databases, backfill history, or claim a video caused a sale. Future opt-in source links, tracked landing pages or consented self-report would be a separate proposal requiring an explicit reopening of the current attribution exclusion and portal-side scope. Self-report would still be reported association, not causal proof.
+
+Acceptance: the next brief can cite an approved anonymous audience theme while an API/role test demonstrates that marketing cannot retrieve the underlying lead or dollar data. No growth claim is made from a missing denominator.
+
+### Proposed implementation order and release gates
+
+**Wave 1 — trust and a usable creative workflow:** X10 → lightweight X11/X12 → X13 → manual-first X14. This is the recommended first investment for better videos; it does not require TikTok Business approval or a full CRM. Pilot a small, human-selected set of upcoming videos rather than automatically backfilling every asset.
+
+**Wave 2 — learn from outcomes:** X15 where supported + X16 → X17 → X18. Observe a complete predeclared evaluation window before deciding the pilot improved performance. Record production effort as well as audience outcomes, and retain inconclusive results.
+
+**Wave 3 — business feedback:** X19 once X7 and the privacy contract exist. X4/X5 may proceed independently only after D20 is explicitly revisited. Close X9's production verification separately; do not confuse a docs merge with a live integration test.
+
+**X8 release gates for every wave:** migrations tested on the correct analyst project; role/IDOR tests; schema and prompt-output validation; retries/idempotency; stale-data notices; provenance tests; model/prompt version logging; spend reservation before paid calls including retries/concurrency; safe degradation when a budget/source is unavailable; reversible rollout. Media jobs, if approved, need bounded queues, file validation, private storage, signed access, deletion/retention handling and failure recovery. No new model, vendor, subscription or spending is enabled by this roadmap PR.
+
+**UI restraint:** extend existing Analysis, Suggestions, Metrics, Insights and Idea map first. Consider at most a focused Studio/Production workspace and an Experiments view if the workflow proves it needs them. Ten phases do not mean ten new sidebar tabs, ten agents, or ten deployments.
+
+### Decisions required before implementation changes locked behaviour
+
+- **C1 — Human-reviewed drafting:** approve expanding the old next-video generator into scripts/production briefs. The no-publishing rule, brand gates and factual review remain.
+- **C2 — Exact creative lineage:** approve supplementing X6's locked auto-only matching with explicit brief/version → published-video links and optional human confirmation. Keep historic automatic links labelled inferred; never relabel them as confirmed retroactively. X1's existing paste-ID pairing workflow is not replaced without a separate decision.
+- **C3 — Media and privacy:** choose permitted asset sources, storage location, retention/deletion, access roles, model/vendor, cost ceiling and a reviewed multilingual sample before audiovisual processing. Do not import private messages or student media merely because a connector exists.
+- **C4 — Metric/scoring changes:** approve any alteration to X6's engagement-only score or X2's locked availability heuristic. X10 can propose the improved contract, but must not silently rewrite historical figures or strip existing cautions. An objective-specific measure in a new experiment is not a retroactive change to X6.
+- **C5 — Sales-theme sharing:** approve the redaction, aggregation and role contract before X19. Video-level enrollment attribution remains excluded unless separately reopened; this roadmap does not grant that approval.
+
+### Primary-source checks used for these proposals
+
+External documentation was checked for this review; availability must be rechecked against the actual account, API version and granted scopes when a phase is implemented. Platform guidance is a starting hypothesis, not an FWJ performance result.
+
+- **[R1] YouTube — three-minute Shorts:** https://support.google.com/youtube/answer/15424877 . The documented classification includes duration, aspect ratio and upload-date conditions; a 60-second-only heuristic is inadequate.
+- **[R2] YouTube Analytics — metrics:** https://developers.google.com/youtube/analytics/metrics . Use the native definitions for views, engaged views, watch time and retention; do not invent interchangeability or missing curves.
+- **[R3] YouTube Analytics — dimensions:** https://developers.google.com/youtube/analytics/dimensions . Investigate supported content-type and retention-report dimensions for the authorized account; a documented field does not prove current ingestion.
+- **[R4] YouTube — key moments for audience retention:** https://support.google.com/youtube/answer/9314415 . Retention can inform moment-level review; a spike can also mean viewers needed to revisit an unclear section.
+- **[R5] YouTube — A/B test titles and thumbnails:** https://support.google.com/youtube/answer/16391400 . Native concurrent tests have eligibility limits, currently exclude Shorts, and use watch-time-based results rather than simply click-through rate.
+- **[R6] TikTok — Creative Codes:** https://ads.tiktok.com/business/en-US/creative-codes . Hook/body/close and platform-aware creative guidance are advertising guidance to test, not evidence of guaranteed organic reach.
