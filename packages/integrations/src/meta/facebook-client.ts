@@ -19,6 +19,31 @@ const VideoPageSchema = z.object({
   paging: z.object({ next: z.string().url().optional() }).optional(),
 });
 
+const AttachmentSchema = z.object({
+  media_type: z.string().optional(),
+  type: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  url: z.string().optional(),
+  target: z.object({
+    id: z.string().optional(),
+    url: z.string().optional(),
+  }).passthrough().optional(),
+}).passthrough();
+
+const PostSchema = z.object({
+  id: z.string().min(1),
+  message: z.string().optional(),
+  created_time: z.string(),
+  permalink_url: z.string().optional(),
+  attachments: z.object({ data: z.array(AttachmentSchema) }).optional(),
+}).passthrough();
+
+const PostPageSchema = z.object({
+  data: z.array(PostSchema),
+  paging: z.object({ next: z.string().url().optional() }).optional(),
+});
+
 const CountSummarySchema = z.object({
   summary: z.object({ total_count: z.number().int().nonnegative() }).optional(),
 }).passthrough();
@@ -141,11 +166,68 @@ export class MetaFacebookClient {
     return out;
   }
 
+  /**
+   * Meta v26 no longer guarantees a readable Page /videos edge. Published Page
+   * posts remain readable with pages_read_engagement, and video/Reel posts
+   * expose their native video id through attachments.target.id.
+   */
+  private async videosFromPosts(edge: 'published_posts' | 'posts'): Promise<FacebookVideo[]> {
+    const out: FacebookVideo[] = [];
+    let next: string | undefined;
+
+    do {
+      const raw = await this.get<unknown>(
+        next ?? `${this.config.pageId}/${edge}`,
+        next === undefined
+          ? {
+              fields: 'id,message,created_time,permalink_url,attachments{media_type,type,title,description,url,target}',
+              limit: 100,
+            }
+          : {}
+      );
+      const page = PostPageSchema.parse(raw);
+      for (const post of page.data) {
+        for (const attachment of post.attachments?.data ?? []) {
+          const kind = `${attachment.media_type ?? ''} ${attachment.type ?? ''}`.toLowerCase();
+          if (!kind.includes('video') && !kind.includes('reel')) continue;
+          const videoId = attachment.target?.id;
+          if (videoId === undefined || videoId === '') continue;
+          out.push({
+            id: videoId,
+            title: attachment.title ?? post.message ?? null,
+            description: attachment.description ?? post.message ?? null,
+            createdTime: new Date(post.created_time).toISOString(),
+            permalink: attachment.target?.url ?? post.permalink_url ?? attachment.url ?? null,
+            lengthSeconds: null,
+          });
+        }
+      }
+      next = page.paging?.next;
+    } while (next !== undefined);
+
+    return out;
+  }
+
   /** /videos is authoritative; /video_reels is additive where Meta exposes it. */
   async allVideos(): Promise<FacebookVideo[]> {
     const byId = new Map<string, FacebookVideo>();
-    const videos = await this.walkEdge('videos');
-    for (const video of videos) byId.set(video.id, video);
+    try {
+      const videos = await this.walkEdge('videos');
+      for (const video of videos) byId.set(video.id, video);
+    } catch {
+      // Page /videos is not readable on every Graph version/Page type.
+    }
+
+    // Page posts are the reliable read surface in current Graph versions.
+    for (const edge of ['published_posts', 'posts'] as const) {
+      try {
+        const posted = await this.videosFromPosts(edge);
+        for (const video of posted) byId.set(video.id, video);
+        if (posted.length > 0) break;
+      } catch {
+        // Try the alternate Page-post edge.
+      }
+    }
 
     try {
       const reels = await this.walkEdge('video_reels');
