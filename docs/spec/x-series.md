@@ -200,11 +200,11 @@ Still open for the X7 chat: what the sales agent reads (WhatsApp export shape, n
 - Deliberately vague; scope it when the earlier milestones reveal what actually breaks.
 
 ### X9 — Instagram + Facebook
-**Status 2026-09-19: Instagram ingestion LIVE AND VERIFIED. Facebook ingestion implemented on `x9-facebook-sync`, awaiting deploy + live API verification.**
+**Status 2026-09-20: Instagram ingestion LIVE AND VERIFIED. Facebook content ingestion LIVE AND VERIFIED; Facebook performance snapshots remain blocked by Meta metric availability/permissions.**
 
 Meta-side setup:
 - Page `645259428673564` links to Instagram professional account `17841474051897273` (@frenchwithjas).
-- Read permissions in the production System User token: `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`, `business_management`.
+- Production System User token currently carries `instagram_basic`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`, `business_management`.
 - A read-only System User (`Backend1`) owns the production token. Meta secrets remain Railway-only.
 
 Instagram production verification (2026-09-19):
@@ -219,20 +219,27 @@ Instagram implementation:
 - uses `appsecret_proof`; no publishing, messaging, commenting or ad-management capability;
 - does not reinterpret `reels_skip_rate` as retention.
 
-Facebook implementation on `x9-facebook-sync`:
-- adds `facebook` as a first-class platform in shared validation and DB constraints (migration 0012);
-- adds a read-only Facebook Page client using the same server-side Meta credentials;
-- reads the Page video library, also attempts the Page Reel edge when available, deduplicating by native video id;
-- reads Page follower/fan count when exposed;
-- reads per-video views and average watch time from video-insight endpoints, plus engagement summaries where Meta exposes them;
-- writes Facebook videos into the existing `content` + `performance` pipeline with no publish/write capability;
-- unsupported historical/media-specific Facebook metrics degrade to null/zero according to the existing performance schema instead of dropping the entire video.
+Facebook production verification (2026-09-20):
+- migration `0012_facebook_platform.sql` was applied to analyst Supabase project `kmgltqfwtyhswqxjicab`; both content/performance platform checks now allow `facebook`;
+- live Railway sync found `53 videos/reels, 17 followers`;
+- Facebook video discovery uses the Page access token obtained server-side from `/me/accounts`, plus Page post/attachment fallback where Graph v26 does not expose the old video edges reliably;
+- all 53 Facebook items were written successfully to `content` with no platform-constraint error;
+- live metric coverage was `views=0/53, engagement=16/53, avg_watch=0/53`;
+- because the performance schema requires a real view count, the sync deliberately wrote 0 Facebook `performance` rows instead of fabricating zero views;
+- this leaves Facebook content ingestion operational, but Facebook performance analytics incomplete until Meta exposes a usable view metric for the token/Page (likely requiring additional Page insights permission or a different supported metric).
 
-Remaining before X9 is closed:
-- PR/merge the Facebook branch;
-- apply migration 0012 to the analyst Supabase project;
-- deploy and run `nightly-sync` against Facebook;
-- verify the actual Facebook endpoint/metric behaviour from Railway logs and correct any Graph-version-specific field/metric names discovered live.
+Facebook implementation:
+- `facebook` is a first-class platform in shared validation and DB constraints;
+- read-only client uses the configured System User credential only to resolve a Page access token; neither token is logged or stored outside Railway;
+- current Page posts are inspected for video/Reel attachments and deduplicated by native video id;
+- current/legacy insight paths are tried conservatively; unavailable metrics stay null;
+- no publishing, messaging, commenting or ad-management capability exists;
+- missing Meta view metrics are never converted into fake 0-view performance snapshots.
+
+Remaining before X9 is fully closed:
+- obtain/verify the Meta permission/metric combination that exposes a real Facebook Page video/Reel view count (and average watch time if available);
+- rerun production sync and confirm Facebook `performance` rows are written with real views;
+- update this section once the Facebook performance path is live.
 
 
 ### X-V — X1 / X6 verification + fixes
