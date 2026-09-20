@@ -356,7 +356,7 @@ Code-level gaps found in this review:
 
 Migration `20260920055246_x10_evidence_budget.sql` is prepared, NOT applied: provenance storage and serialized per-call budget reservations (also used by X6 narrative calls without changing scoring). Missing cap/key/reservation service prevents paid calls; uncertain calls conservatively retain their reservation. SDK automatic retries are disabled; each explicit retry reserves again. No paid calls were made during implementation.
 
-Remaining: native metric definitions/Shorts classification must be verified against authorized account data before ingestion can populate trustworthy native provenance. Historical rows are not backfilled or reclassified. Duration-matched evidence awaits X11 metadata; cohorts without eight comparable videos abstain from ranking. Full availability unification is blocked by C4. Production/migration verification is outstanding.
+Remaining: native metric definitions/Shorts classification must be verified against authorized account data before ingestion can populate trustworthy native provenance. Historical rows are not backfilled or reclassified. Duration-matched evidence uses optional X11 metadata when entered; cohorts without eight comparable videos abstain from ranking. Full availability unification is blocked by C4. Production/migration verification is outstanding.
 
 **Priority: first. Dependencies: existing X1/X2/X6.** Make the present system agree with itself before teaching it more creative rules.
 
@@ -420,6 +420,12 @@ Extend the existing banned-topic and brand-voice gates to draft outputs, then ad
 Acceptance: a selected suggestion becomes a ready-to-film brief with sources, clear visuals and a meaningful ending; Jas can edit and approve it; rejected hooks/revision reasons are retained. This phase proposes human-reviewed drafting and therefore requires updating the old generator's “never write content” contract explicitly, without adding a publish capability.
 
 ### X14 — Production board and pre-publication edit review
+
+**Implementation checkpoint 2026-09-20 — C2 APPROVED by Jas for this run; manual workflow implemented, NOT SHIPPED.** Suggestions now contains one production item per brief/concept, pinned to an approved brief revision, with the ordered selected → brief approved → filmed → edit review → approved → posted → reviewed path. Configurable responsibility labels, owner/due date, blockers, append-only asset identities, timecoded defect/editorial requests and an explicit finite resolution list are versioned. Every checklist item remains present; rights/consent and factual accuracy cannot be marked not applicable. A different export clears the checklist and approval; any editable revision clears approval. Only the portal owner can approve the exact reviewed export or confirm a published link. Collaborator labels grant no roles. Posted/Skipped and X1 pairing remain unchanged.
+
+`20260920064324_x14_production_lineage.sql` is prepared NOT applied. The service-only confirmed-lineage table and transactional RPC link an exact approved brief revision/export identity to an existing content UUID, with immutable history, replay protection, foreign keys and atomic posted-state recording. No historical inference is backfilled or relabelled; X6 inferred edges remain separate. Unit/API/isolated SQL tests cover transitions, approval invalidation, rights/factual checks, role/ID protection, invalid references, replay and rollback. No editing/rendering/uploading/publishing capability exists.
+
+Remaining: apply reviewed migrations to the analyst database in a separately authorized release, verify real portal sessions and approved media/version links, and run a human filming/edit-review pilot. Human-supplied fingerprints and actual export/posted identity cannot be verified without real-world review. Current release permits owner approval only; additional reviewer roles need an explicit access-policy decision. Posted production items are immutable except additional confirmed platform links and the final reviewed transition; corrections require deliberate future lineage-correction tooling, not rewriting history. Live feature status is unverified.
 
 **Priority: high. Dependencies: X11/X13; manual checks can ship first.** Connect research and scripts to the actual edit, rather than losing feedback in messages.
 

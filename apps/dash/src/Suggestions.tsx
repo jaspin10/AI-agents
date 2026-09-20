@@ -1,3 +1,4 @@
+import { ProductionBoard } from './ProductionBoard.js';
 import { BriefLab } from './BriefLab.js';
 import { AudienceResearch } from './AudienceResearch.js';
 import { useEffect, useState } from 'react';
@@ -46,6 +47,7 @@ export function Suggestions() {
     <>
       <AudienceResearch />
       <BriefLab suggestions={rows}/>
+      <ProductionBoard />
       {rows.length===0 && <p>No suggestions yet.</p>}
       {rows.map((s) => (
         <div className="card" key={s.id}>

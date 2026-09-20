@@ -60,3 +60,25 @@ test('generation jobs refuse duplicate requests and concurrent work for one brie
   await db.query("update studio_jobs set status='complete' where id=$1",[job]);await insert('00000000-0000-4000-8000-000000000083');
  }finally{await db.close();}
 });
+test('confirmed lineage is atomic, exact-versioned, replay safe and separate from inferred matching',async()=>{
+ const db=await database();try{
+  const brief='00000000-0000-4000-8000-000000000090',prod='00000000-0000-4000-8000-000000000091',content='00000000-0000-4000-8000-000000000092',request='00000000-0000-4000-8000-000000000093';
+  await db.query('insert into content(id) values($1)',[content]);await db.exec('set role service_role');
+  await db.query('select save_studio_record($1,$2,$3,0,$4,$5,$6)',[brief,'brief',brief,JSON.stringify({approval:{version:1}}),'Jas','00000000-0000-4000-8000-000000000094']);
+  const body={stage:'approved',briefId:brief,briefVersion:1,currentAssetVersion:'v1',assets:[{version:'v1',fingerprint:'exact'}],approval:{assetVersion:'v1',fingerprint:'exact',briefId:brief,briefVersion:1}};
+  const save=(version,b,req)=>db.query('select save_studio_record($1,$2,$3,$4,$5,$6,$7)',[prod,'production',brief,version,JSON.stringify(b),'Jas',req]);
+  await save(0,{...body,approval:null},'00000000-0000-4000-8000-000000000095');
+  const confirm=(v,c=content,r=request)=>db.query('select confirm_production_lineage($1,$2,$3,$4,$5) as r',[prod,v,c,'Jas',r]);
+  await assert.rejects(confirm(1),/exact_approval_required/);
+  await save(1,body,'00000000-0000-4000-8000-000000000096');
+  await assert.rejects(confirm(2,'00000000-0000-4000-8000-000000000099'),/content_missing/);
+  assert.equal((await db.query('select version from studio_records where id=$1',[prod])).rows[0].version,2);
+  assert.equal((await confirm(2)).rows[0].r.body.stage,'posted');assert.equal((await confirm(2)).rows[0].r.version,3);
+  await assert.rejects(confirm(2,brief),/request_conflict/);
+  await assert.rejects(confirm(3,content,'00000000-0000-4000-8000-000000000097'),/unique constraint/);
+  assert.equal((await db.query('select version from studio_records where id=$1',[prod])).rows[0].version,3);
+  const rows=(await db.query('select * from production_lineage')).rows;assert.equal(rows.length,1);assert.equal(rows[0].basis,'human_confirmed');assert.equal(rows[0].brief_version,1);assert.equal(rows[0].asset_fingerprint,'exact');
+  await assert.rejects(db.exec('delete from production_lineage'),/permission denied/);
+  await db.exec('reset role;set role anon');await assert.rejects(confirm(3),/permission denied/);
+ }finally{await db.close();}
+});

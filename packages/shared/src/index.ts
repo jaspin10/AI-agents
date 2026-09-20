@@ -24,3 +24,5 @@ export * from './budget.js';
 export * from './creative-memory.js';
 export * from './research.js';
 export * from './brief.js';
+
+export * from './production.js';
