@@ -313,8 +313,13 @@ async function syncFacebook(writer: Writer, csvTags: HypothesisTagMap, dbTags: H
 
   const client = new MetaFacebookClient(config);
   const snapshot = await client.snapshot();
+  const withViews = snapshot.videos.filter((video) => video.metrics.views !== null).length;
+  const withEngagement = snapshot.videos.filter(
+    (video) => video.metrics.likes > 0 || video.metrics.comments > 0 || video.metrics.shares > 0
+  ).length;
+  const withWatchTime = snapshot.videos.filter((video) => video.metrics.avgWatchTimeSeconds !== null).length;
   logger.info(
-    `facebook: ${snapshot.videos.length} videos/reels${snapshot.followerCount === null ? '' : `, ${snapshot.followerCount} followers`}`
+    `facebook: ${snapshot.videos.length} videos/reels${snapshot.followerCount === null ? '' : `, ${snapshot.followerCount} followers`}; metric coverage views=${withViews}/${snapshot.videos.length}, engagement=${withEngagement}/${snapshot.videos.length}, avg_watch=${withWatchTime}/${snapshot.videos.length}`
   );
 
   const now = new Date();
@@ -332,6 +337,11 @@ async function syncFacebook(writer: Writer, csvTags: HypothesisTagMap, dbTags: H
       hypothesis,
       postedAt: video.createdTime,
     });
+    if (video.metrics.views === null) {
+      // The performance schema requires a real view count. Never turn a
+      // permission/unavailable Meta metric into a fabricated 0-view snapshot.
+      continue;
+    }
     await writer.performance({
       id: randomUUID(),
       contentId: video.id,

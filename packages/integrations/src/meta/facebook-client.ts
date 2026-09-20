@@ -73,6 +73,8 @@ const InsightsResponseSchema = z.object({ data: z.array(InsightSchema) });
 
 export interface FacebookVideo {
   id: string;
+  /** Page post id when this video was discovered from a published post. */
+  postId: string | null;
   title: string | null;
   description: string | null;
   createdTime: string;
@@ -81,7 +83,8 @@ export interface FacebookVideo {
 }
 
 export interface FacebookMetrics {
-  views: number;
+  /** null means Meta did not expose a usable view metric; never turn that into fake zero views. */
+  views: number | null;
   likes: number;
   comments: number;
   shares: number;
@@ -198,6 +201,7 @@ export class MetaFacebookClient {
       for (const video of page.data) {
         out.push({
           id: video.id,
+          postId: null,
           title: video.title ?? null,
           description: video.description ?? null,
           createdTime: new Date(video.created_time).toISOString(),
@@ -239,6 +243,7 @@ export class MetaFacebookClient {
           if (videoId === undefined || videoId === '') continue;
           out.push({
             id: videoId,
+            postId: post.id,
             title: attachment.title ?? post.message ?? null,
             description: attachment.description ?? post.message ?? null,
             createdTime: new Date(post.created_time).toISOString(),
@@ -300,6 +305,21 @@ export class MetaFacebookClient {
     return null;
   }
 
+  /** Current Graph v26 Page-post media view metric. Requires Meta read_insights. */
+  private async postMediaViews(postId: string): Promise<number | null> {
+    try {
+      const raw = await this.get<unknown>(`${postId}/insights`, {
+        metric: 'post_media_view',
+        period: 'lifetime',
+      });
+      const parsed = InsightsResponseSchema.parse(raw);
+      const row = parsed.data.find((item) => item.name === 'post_media_view') ?? parsed.data[0];
+      return numeric(row?.values?.[0]?.value);
+    } catch {
+      return null;
+    }
+  }
+
   private async engagement(videoId: string): Promise<{ likes: number; comments: number; shares: number }> {
     let likes = 0;
     let comments = 0;
@@ -329,12 +349,15 @@ export class MetaFacebookClient {
     return { likes, comments, shares };
   }
 
-  async videoMetrics(videoId: string): Promise<FacebookMetrics> {
-    const [engagement, ...insightValues] = await Promise.all([
-      this.engagement(videoId),
-      ...VIDEO_INSIGHT_METRICS.map((metric) => this.insightMetric(videoId, metric)),
+  async videoMetrics(video: FacebookVideo): Promise<FacebookMetrics> {
+    const engagementId = video.postId ?? video.id;
+    const [engagement, postViews, ...insightValues] = await Promise.all([
+      this.engagement(engagementId),
+      video.postId === null ? Promise.resolve(null) : this.postMediaViews(video.postId),
+      ...VIDEO_INSIGHT_METRICS.map((metric) => this.insightMetric(video.id, metric)),
     ]);
-    const [viewsRaw, avgWatchRaw, viewTimeRaw] = insightValues;
+    const [legacyViewsRaw, avgWatchRaw] = insightValues;
+    const viewsRaw = postViews ?? legacyViewsRaw ?? null;
 
     // Meta historically reports average watched time in milliseconds. Use it
     // only when that explicit metric is exposed; never derive average time
@@ -342,7 +365,7 @@ export class MetaFacebookClient {
     const avgWatchTimeSeconds = avgWatchRaw == null ? null : avgWatchRaw / 1000;
 
     return {
-      views: Math.max(0, Math.round(viewsRaw ?? 0)),
+      views: viewsRaw === null ? null : Math.max(0, Math.round(viewsRaw)),
       likes: engagement.likes,
       comments: engagement.comments,
       shares: engagement.shares,
@@ -355,7 +378,7 @@ export class MetaFacebookClient {
     const [followerCount, videos] = await Promise.all([this.followerCount(), this.allVideos()]);
     const rows: FacebookSnapshot['videos'] = [];
     for (const video of videos) {
-      rows.push({ ...video, metrics: await this.videoMetrics(video.id) });
+      rows.push({ ...video, metrics: await this.videoMetrics(video) });
     }
     return { followerCount, videos: rows };
   }
