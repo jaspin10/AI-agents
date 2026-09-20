@@ -167,7 +167,7 @@ Scope, per video:
 - **First real output:** 104 analysed / 98 scored / 0 pairs. TikTok (95 scored, median engagement 1.54%) produced 8 claims; the standout is `cta_type=Comment` at 1.11% against the 1.54% median (n=8, pooled) — a weak hypothesis to test, correctly labelled as such. YouTube (4 analysed, 0 scored) and YouTube Shorts (5 analysed, 3 scored) both correctly returned "not enough scored videos yet (need 8)". The caution block printed all five lines including the no-pairs warning.
 - **Gotcha found during verification:** the manual button initially returned a **numbers-only** report because `ANTHROPIC_API_KEY` was set on `nightly-sync` but not on `analyst-dash`. Fixed by copying the key plus `LLM_MONTHLY_CAP` and `LLM_ALLOW_BROWSER`. Slack env vars remain unset on `analyst-dash`, so manual runs do not post to Slack — deliberate for now. See the service parity rule at the top of this file.
 
-Built: `packages/shared/src/correlation.ts` (pure, node:test, 14 cases) · `insights` agent (`capability analysis.insights`, no tools) · `apps/orchestrator/dist/insights.js` cron entrypoint · `GET /api/insights/latest`, `/runs`, `POST /api/insights/run`, `POST /api/insights/tags/:id` · `Insights` panel third in the nav · Idea map X6 edges · Slack summary via `postSlackText`. Tables (migration 0011): `insight_runs`, `hypothesis_suggestions`.
+Built: `packages/shared/src/correlation.ts` (pure, node:test, 14 cases) · `insights` agent (`capability analysis.insights`, no tools) · `apps/orchestrator/dist/insights.js` cron entrypoint · `GET /api/insights/latest`, `/runs`, `POST /api/insights/run`, `POST /api/insights/tags/:id` · `Insights` panel third in the nav · Idea map X6 edges · Slack summary via `postSlackText`. Tables (migration 0012): `insight_runs`, `hypothesis_suggestions`.
 
 **Sub-decisions locked 2026-09-10 (Jas):**
 - **Runs nightly + manual.** Nightly is chained from `sync.ts` on the existing `nightly-sync` service — no new service, no dependency cycle, and an insights failure never changes sync's exit code. `--dry-run` and `--no-insights` skip it. Manual spawns the *same* entrypoint from `apps/api`, one at a time (409 while in flight).
@@ -220,7 +220,7 @@ Instagram implementation:
 - does not reinterpret `reels_skip_rate` as retention.
 
 Facebook implementation on `x9-facebook-sync`:
-- adds `facebook` as a first-class platform in shared validation and DB constraints (migration 0011);
+- adds `facebook` as a first-class platform in shared validation and DB constraints (migration 0012);
 - adds a read-only Facebook Page client using the same server-side Meta credentials;
 - reads the Page video library, also attempts the Page Reel edge when available, deduplicating by native video id;
 - reads Page follower/fan count when exposed;
@@ -230,7 +230,7 @@ Facebook implementation on `x9-facebook-sync`:
 
 Remaining before X9 is closed:
 - PR/merge the Facebook branch;
-- apply migration 0011 to the analyst Supabase project;
+- apply migration 0012 to the analyst Supabase project;
 - deploy and run `nightly-sync` against Facebook;
 - verify the actual Facebook endpoint/metric behaviour from Railway logs and correct any Graph-version-specific field/metric names discovered live.
 
