@@ -167,7 +167,7 @@ export function Insights() {
             </div>
             {pending.length === 0 ? <div className="dim">No pending proposals.</div> : null}
             {pending.map((p) => (
-              <div key={p.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
+              <div key={p.id} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
                 <span className="chip">{p.tag}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13 }}>{videoLabel(p.contentId)}</div>

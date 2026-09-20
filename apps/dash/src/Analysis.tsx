@@ -178,11 +178,11 @@ export function Analysis() {
   };
 
   const chip = (label: string, active: boolean, onClick: () => void) => (
-    <button key={label} type="button" className={`chip ${active ? 'active' : ''}`} onClick={onClick}>{label}</button>
+    <button key={label} type="button" className={`chip ${active ? 'active' : ''}`} aria-pressed={active} onClick={onClick}>{label}</button>
   );
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: selected === null ? '1fr' : 'minmax(0, 1.1fr) minmax(360px, 0.9fr)', gap: 16, alignItems: 'start' }}>
+    <div className={`analysis-layout ${selected !== null ? 'has-selection' : ''}`}>
       <div className="card">
         <div className="chips">
           {platforms.map((p) => chip(p, p === platform, () => setPlatform(p)))}
@@ -192,12 +192,12 @@ export function Analysis() {
           {chip('Analysed', analysed === 'done', () => setAnalysed('done'))}
         </div>
         <div style={{ marginBottom: 12 }}>
-          <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or video ID" />
+          <input className="input" aria-label="Search videos by title or ID" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or video ID" />
           <div className="hint">
             {visible.length} shown · {doneCount} of {data.videos.length} analysed · click a row to open its form
           </div>
         </div>
-        <table>
+        <div className="table-scroll" role="region" aria-label="Scrollable analysis table" tabIndex={0}><table>
           <thead>
             <tr>
               <th></th>
@@ -220,7 +220,7 @@ export function Analysis() {
                   style={{ cursor: 'pointer', background: v.id === selectedId ? 'rgba(255,255,255,0.05)' : undefined }}>
                   <td title={v.analysis === null ? 'Not analysed yet' : `Analysed by ${v.analysis.analysedBy}`}>{v.analysis === null ? '○' : '●'}</td>
                   <td>{v.platform}</td>
-                  <td style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.title ?? ''}>{v.title ?? '(untitled)'}</td>
+                  <td style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.title ?? ''}><button className="table-link" aria-pressed={v.id === selectedId} onClick={() => setSelectedId(v.id)}>{v.title ?? '(untitled)'}</button></td>
                   <td className="dim">{v.postedAt.slice(0, 10)}</td>
                   <td>{m === null ? '—' : m.views.toLocaleString()}</td>
                   <td>{m === null ? '—' : m.likes.toLocaleString()}</td>
@@ -232,9 +232,10 @@ export function Analysis() {
               );
             })}
           </tbody>
-        </table>
+        </table></div>
+        {visible.length === 0 && <div className="empty-state"><strong>No videos found</strong><p>Try a different title, video ID or filter.</p></div>}
       </div>
-      {selected !== null && <div> <CreativeMemory key={`memory-${selected.id}`} contentId={selected.id}/>
+      {selected !== null && <div className="analysis-editor"> <CreativeMemory key={`memory-${selected.id}`} contentId={selected.id}/>
       {(
         <AnalysisForm key={selected.id} video={selected} ideaSources={data.ideaSources}
           onClose={() => setSelectedId(null)} onSaved={onSaved} />
@@ -328,7 +329,7 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
     && refPreview.id !== video.id && refPreview.platform !== video.platform && !refs.some((r) => r.id === refPreview.id);
 
   return (
-    <div className="card" style={{ position: 'sticky', top: 16 }}>
+    <div className="card analysis-form">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 600, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={video.title ?? ''}>
@@ -422,7 +423,7 @@ function AnalysisForm({ video, ideaSources, onClose, onSaved }: {
             Ad runs — one line per campaign (a video can be boosted more than once over its life)
           </div>
           {adRuns.map((r, i) => (
-            <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+            <div key={r.key} className="ad-run-row">
               <label>
                 <span className="hint" style={{ display: 'block', marginBottom: 4 }}>{i === 0 ? 'Start' : ''}</span>
                 <input type="date" className="input" value={r.startDate} onChange={(e) => setAdRun(r.key, { startDate: e.target.value })} />

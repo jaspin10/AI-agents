@@ -55,7 +55,7 @@ function VideoCard({ v, byId }: { v: MetricsVideo; byId: Map<string, MetricsVide
         {v.latestCapturedDate !== null ? ` · latest ${v.latestCapturedDate}` : ''}
         {twins.length > 0 ? ` · ${twins.length} cross-platform twin${twins.length === 1 ? '' : 's'}` : ''}
       </div>
-      <table>
+      <div className="table-scroll" role="region" aria-label="Scrollable metrics table" tabIndex={0}><table>
         <thead>
           <tr>
             <th />
@@ -79,7 +79,7 @@ function VideoCard({ v, byId }: { v: MetricsVideo; byId: Map<string, MetricsVide
           ))}
           {row('Ad window split', (x) => <AdSplitCell v={x} />)}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -105,7 +105,7 @@ export function Metrics() {
   if (data === null) return <div className="card dim">Loading…</div>;
 
   const chip = (label: string, active: boolean, onClick: () => void) => (
-    <button key={label} type="button" className={`chip ${active ? 'active' : ''}`} onClick={onClick}>{label}</button>
+    <button key={label} type="button" className={`chip ${active ? 'active' : ''}`} aria-pressed={active} onClick={onClick}>{label}</button>
   );
 
   return (

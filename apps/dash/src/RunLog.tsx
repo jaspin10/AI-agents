@@ -28,7 +28,7 @@ export function RunLog() {
 
   return (
     <div className="card">
-      <table>
+      <div className="table-scroll" role="region" aria-label="Scrollable runlog table" tabIndex={0}><table>
         <thead>
           <tr><th>When</th><th>Agent</th><th>Tool</th><th>Status</th><th>Duration</th><th>Error</th></tr>
         </thead>
@@ -44,7 +44,7 @@ export function RunLog() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
