@@ -27,6 +27,17 @@ const StripeConfigSchema = z.object({
 });
 export type StripeConfig = z.infer<typeof StripeConfigSchema>;
 
+/** Meta Graph API: server-side System User token, read-only analytics. */
+const MetaConfigSchema = z.object({
+  appId: z.string().min(1),
+  appSecret: z.string().min(1),
+  pageId: z.string().min(1),
+  igUserId: z.string().min(1),
+  accessToken: z.string().min(1),
+  graphApiVersion: z.string().regex(/^v\d+\.\d+$/).optional(),
+});
+export type MetaConfig = z.infer<typeof MetaConfigSchema>;
+
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value === undefined || value === '' ? undefined : value;
@@ -78,4 +89,29 @@ export function readStripeConfig(): StripeConfig | null {
   const secretKey = env('STRIPE_SECRET_KEY');
   if (secretKey === undefined) return null;
   return StripeConfigSchema.parse({ secretKey });
+}
+
+export function readMetaConfig(): MetaConfig | null {
+  const appId = env('META_APP_ID');
+  const appSecret = env('META_APP_SECRET');
+  const pageId = env('META_PAGE_ID');
+  const igUserId = env('META_IG_USER_ID');
+  const accessToken = env('META_ACCESS_TOKEN');
+  if (
+    appId === undefined &&
+    appSecret === undefined &&
+    pageId === undefined &&
+    igUserId === undefined &&
+    accessToken === undefined
+  ) {
+    return null;
+  }
+  return MetaConfigSchema.parse({
+    appId,
+    appSecret,
+    pageId,
+    igUserId,
+    accessToken,
+    graphApiVersion: env('META_GRAPH_API_VERSION'),
+  });
 }
