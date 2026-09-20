@@ -195,6 +195,23 @@ function requireRole(...roles: DashRole[]): MiddlewareHandler<Env> {
 const app = new Hono<Env>().basePath(BASE_PATH);
 
 /**
+ * Same-domain (2026-09): everything here is per-session (a cookie decides
+ * every response) and sits behind Vercel's proxy. Without an explicit
+ * no-store, a 302 or an HTML response is fair game for an edge cache to
+ * replay to a DIFFERENT visitor, or to the same visitor after their auth
+ * state changes — which is exactly what caused a real "auth handoff works
+ * server-side but the very next request still reads unauthenticated" bug on
+ * 2026-09-20. Excludes /assets/* on purpose: those filenames are
+ * content-hashed by vite, so caching them forever is correct and desired.
+ */
+app.use('*', async (c, next) => {
+  await next();
+  if (!c.req.path.startsWith(`${BASE_PATH}/assets/`)) {
+    c.header('Cache-Control', 'no-store');
+  }
+});
+
+/**
  * Single-origin hosting (M4.5 Step 4): this process serves the built dash as
  * well as /api/*, so the browser never makes a cross-origin request and no
  * API base URL is needed. CORS therefore exists only for local `pnpm dash`,
