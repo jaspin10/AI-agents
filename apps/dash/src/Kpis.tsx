@@ -126,7 +126,7 @@ function StripeCard({ rows, loading, portalReady }: { rows: MonthRow[]; loading:
       {loading ? (
         <div className="dim">Loading…</div>
       ) : (
-        <table>
+        <div className="table-scroll" role="region" aria-label="Scrollable kpis table" tabIndex={0}><table>
           <thead>
             <tr>
               <th>Month</th>
@@ -141,7 +141,7 @@ function StripeCard({ rows, loading, portalReady }: { rows: MonthRow[]; loading:
               <GapRow key={r.month} row={r} portalReady={portalReady} />
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );
@@ -272,7 +272,7 @@ function PortalMonthBlock({ month, levels }: { month: PortalMonth; levels: strin
         </span>
         {month.total.legacy > 0 ? <span className="dim">{month.total.legacy} legacy import</span> : null}
       </div>
-      <table>
+      <div className="table-scroll" role="region" aria-label="Scrollable kpis table" tabIndex={0}><table>
         <thead>
           <tr>
             <th>Level</th>
@@ -295,7 +295,7 @@ function PortalMonthBlock({ month, levels }: { month: PortalMonth; levels: strin
             );
           })}
         </tbody>
-      </table>
+      </table></div>
       <div className="hint" style={{ marginTop: 8 }}>
         Paid by:{' '}
         {sources.map(([source, n], i) => (
@@ -331,7 +331,7 @@ function CoverageCard({ payload }: { payload: CoveragePayload | null }) {
       {payload === null ? (
         <div className="dim">Loading…</div>
       ) : (
-        <table>
+        <div className="table-scroll" role="region" aria-label="Scrollable kpis table" tabIndex={0}><table>
           <thead>
             <tr>
               <th>Week of</th>
@@ -364,7 +364,7 @@ function CoverageCard({ payload }: { payload: CoveragePayload | null }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

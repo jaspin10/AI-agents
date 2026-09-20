@@ -39,16 +39,18 @@ export function Suggestions() {
     }
   }
 
-  if (error !== null) return <div className="card dim">API error: {error} — is the API running? (pnpm dash)</div>;
+  if (error !== null) return <div className="card dim">Unable to load suggestions: {error}</div>;
   if (rows === null) return <div className="card dim">Loading…</div>;
 
 
   return (
     <>
+      <div className="section-heading"><h2>Creative studio</h2><p className="dim">Research → brief → production. Open a tool to continue.</p></div>
       <AudienceResearch />
       <BriefLab suggestions={rows}/>
       <ProductionBoard />
-      {rows.length===0 && <p>No suggestions yet.</p>}
+      <div className="section-heading"><h2>Suggestions <span className="count-badge">{rows.length}</span></h2><p className="dim">Review the hook, rationale and evidence before taking action.</p></div>
+      {rows.length===0 && <div className="card empty-state"><strong>No suggestions yet</strong><p>You can still collect audience questions and prepare a brief above.</p></div>}
       {rows.map((s) => (
         <div className="card" key={s.id}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -70,10 +72,10 @@ export function Suggestions() {
             <span style={{ fontSize: 12 }} className="dim">{new Date(s.createdAt).toLocaleString()}</span>
             {s.status === 'surfaced' ? (
               <span style={{ display: 'flex', gap: 8 }}>
-                <button disabled={busy === s.id} onClick={() => void flip(s.id, 'posted')}>
+                <button className="btn" disabled={busy === s.id} onClick={() => void flip(s.id, 'posted')}>
                   ✓ Posted
                 </button>
-                <button disabled={busy === s.id} onClick={() => void flip(s.id, 'skipped')}>
+                <button className="btn" disabled={busy === s.id} onClick={() => void flip(s.id, 'skipped')}>
                   ✗ Skipped
                 </button>
               </span>

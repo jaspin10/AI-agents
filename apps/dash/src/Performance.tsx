@@ -70,7 +70,7 @@ export function Performance() {
     <div className="card">
       <div style={{ marginBottom: 12 }}>
         {platforms.map((p) => (
-          <button key={p} className={`nav-item ${p === platform ? 'active' : ''}`}
+          <button key={p} className={`chip ${p === platform ? 'active' : ''}`} aria-pressed={p === platform}
             style={{ display: 'inline-block', width: 'auto', marginRight: 6 }}
             onClick={() => setPlatform(p)}>
             {p}
@@ -78,15 +78,15 @@ export function Performance() {
         ))}
         <span className="dim" style={{ marginLeft: 8 }}>{visible.length} videos · click headers to sort</span>
       </div>
-      <table>
+      <div className="table-scroll" role="region" aria-label="Scrollable performance table" tabIndex={0}><table>
         <thead>
           <tr>
             <th>Platform</th>
             <th>Title</th>
-            <th onClick={() => setSortKey('views')}>Views {sortKey === 'views' ? '▾' : ''}</th>
-            <th onClick={() => setSortKey('engagementPct')}>Engagement {sortKey === 'engagementPct' ? '▾' : ''}</th>
-            <th onClick={() => setSortKey('sharePct')}>Share rate {sortKey === 'sharePct' ? '▾' : ''}</th>
-            <th onClick={() => setSortKey('retentionPct')}>Retention {sortKey === 'retentionPct' ? '▾' : ''}</th>
+            <th aria-sort={sortKey === 'views' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('views')}>Views {sortKey === 'views' ? '▾' : '↕'}</button></th>
+            <th aria-sort={sortKey === 'engagementPct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('engagementPct')}>Engagement {sortKey === 'engagementPct' ? '▾' : '↕'}</button></th>
+            <th aria-sort={sortKey === 'sharePct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('sharePct')}>Share rate {sortKey === 'sharePct' ? '▾' : '↕'}</button></th>
+            <th aria-sort={sortKey === 'retentionPct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('retentionPct')}>Retention {sortKey === 'retentionPct' ? '▾' : '↕'}</button></th>
             <th>Tag</th>
           </tr>
         </thead>
@@ -103,7 +103,8 @@ export function Performance() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
+      {visible.length === 0 && <div className="empty-state"><strong>No performance snapshots yet</strong><p>Results appear after published videos have been synced.</p></div>}
     </div>
   );
 }

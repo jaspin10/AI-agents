@@ -76,6 +76,16 @@ Same applies to `SUPABASE_SERVICE_ROLE_KEY` — it lives on `analyst-dash`, `nig
 - `apps/api` deploy log at that same moment: `handoff ok: owner learn@frenchwithjas.ca`.
 - Marketing-role behaviour verified pre-ship by direct API test: a minted `marketing` token got `403` on `/api/kpis`, `/api/kpis/monthly`, `/api/logs`, and `200` on `/api/suggestions`, `/api/me`, `/api/content-performance`. Eknoor's own live click-through was confirmed the same evening (`handoff ok: marketing www.eknooor919@gmail.com`, 18:15 UTC).
 
+### Dashboard design refresh — 2026-09-20
+
+Implemented in `codex/marketing-design-refresh` for review against `milestone-2`:
+- Shared dark visual system across all eight existing panels: clearer page headings, compact branded sidebar, consistent cards, stronger muted-text/field contrast, and styled X11–X14 studio controls.
+- Responsive horizontal navigation below 800px; Analysis editor stacks below 1150px; Idea map and form columns stack on smaller screens. Tables scroll inside labelled keyboard-focusable regions instead of widening the page.
+- Keyboard-operable Analysis title buttons and Performance sort buttons, announced selected filters/sort direction, skip-to-content link, visible focus states, larger mobile controls, and reduced-motion support.
+- Creative tools remain expandable under Suggestions, with separate studio/suggestion headings. Empty search/results and session loading/error states are clearer. Existing role panel lists, API permissions, metrics, human review gates and publishing restrictions are unchanged.
+
+Validation: Node 20.20.2 / pnpm 10.15.0 full workspace build and dashboard TypeScript check passed. Local Chromium checks with intercepted fixture responses covered all eight panels at 1440, 1024, 390 and 320px, expanded Analysis/creative-memory and audience/brief/production forms, Performance sorting and marketing-role navigation; no document overflow or browser page errors. Desktop Analysis and mobile expanded-studio screenshots were visually inspected. This is local fixture verification, not production data, save-path or deployment verification.
+
 ### X1 — Eknoor inputs content analysis
 **Confirmed 2026-09-10:** Supabase MCP has full read/write access to the analyst project (`kmgltqfwtyhswqxjicab`), verified with a live `execute_sql` call — not just the portal project. Not a blocker for X1.
 

@@ -34,11 +34,11 @@ export function IdeaMap() {
 
   if (error !== null) return <div className="card dim">API error: {error}</div>;
   if (rows === null) return <div className="card dim">Loading…</div>;
-  if (rows.length === 0) return <div className="card dim">No suggestions yet — run pnpm suggest.</div>;
+  if (rows.length === 0) return <div className="card dim">No suggestions yet. Saved suggestions will appear here.</div>;
 
   return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      <div style={{ flex: 2 }}>
+    <div className="idea-layout">
+      <div>
         {groups.map(([group, items]) => (
           <div className="card" key={group}>
             <div className="dim" style={{ marginBottom: 10, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -71,7 +71,7 @@ export function IdeaMap() {
           after, same tag or format). Outcomes are never confirmed by a person — the match is automatic.
         </div>
       </div>
-      <div style={{ flex: 1, position: 'sticky', top: 28 }}>
+      <div className="idea-detail">
         {selected === null ? (
           <div className="card dim">Click a node to inspect it.</div>
         ) : (
