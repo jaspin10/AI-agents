@@ -1,3 +1,4 @@
+import { BriefLab } from './BriefLab.js';
 import { AudienceResearch } from './AudienceResearch.js';
 import { useEffect, useState } from 'react';
 import { getJson, setSuggestionStatus, type SuggestionRow } from './api.js';
@@ -44,6 +45,7 @@ export function Suggestions() {
   return (
     <>
       <AudienceResearch />
+      <BriefLab suggestions={rows}/>
       {rows.length===0 && <p>No suggestions yet.</p>}
       {rows.map((s) => (
         <div className="card" key={s.id}>

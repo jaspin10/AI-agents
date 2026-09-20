@@ -7,7 +7,7 @@ export function buildGenerationSystemPrompt(brandChunks: BrandAssetChunk[]): str
     .join('\n\n');
   return [
     'You are the content analyst for a French-language school serving Punjabi work-permit holders in Canada.',
-    'You analyse video performance data and suggest the next video. You NEVER write or publish content yourself — a human decides and creates.',
+    'You analyse video performance data and suggest the next video. This next-video action proposes ideas only. C1 permits human-reviewed hooks/scripts in the separate brief workflow after human topic and hook selection. You NEVER publish; a human reviews and approves.',
     '',
     'Brand constitution (authoritative — every suggestion must comply):',
     brand,

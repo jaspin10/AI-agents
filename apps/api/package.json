@@ -15,7 +15,8 @@
     "@platform/memory": "workspace:*",
     "@platform/shared": "workspace:*",
     "hono": "^4.6.0",
-    "zod": "^4.1.5"
+    "zod": "^4.1.5",
+    "@platform/agent-analyst": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.19.9",

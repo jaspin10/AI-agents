@@ -410,6 +410,12 @@ Acceptance: each topic links to real authorized evidence or is clearly marked �
 
 ### X13 — Hook, script and teaching-brief lab
 
+**Implementation checkpoint 2026-09-20 — C1 APPROVED by Jas for this run; code implemented, NOT SHIPPED.** The existing generator contract now explicitly permits a separate human-reviewed drafting workflow while the next-video action stays ideas-only. Suggestions contains a brief lab: human topic/viewer/outcome/platform/duration/measure/action/language selection, dated factual sources and validated X11/X12/suggestion references; three structurally distinct checked hooks; human selection with retained rejection reasons; generated or edited script, visuals/B-roll, first frame, subtitles, payoff, learner practice and CTA. Manual changes clear checks/approval. Existing banned-topic and brand-voice checks run on draft outputs, with French/level/language, lesson/practice, misleading-promise and factual-risk checks. Owner approval records the exact revision plus human factual confirmation; marketing can prepare but cannot approve.
+
+Generation uses the existing model/vendor and X10 reservations, validates outputs/IDs, logs model/prompt version and source snapshots, and persists durable request jobs to reject duplicate/concurrent paid runs. No model calls were made in development; generator tests use mocked responses. A missing key/cap/reservation service stops generation without approving anything. An owner can cancel a stale job; uncertain spend reservations remain conservative.
+
+`20260920062911_x13_reviewed_briefs.sql` is prepared NOT applied. Live model quality, French/Punjabi code-switching, teaching accuracy and source freshness require human review and an authorized pilot. No publishing, media processing or new model/vendor enabled. All draft/API/migration tests are local; no production verification claimed.
+
 **Priority: highest direct creative value. Dependencies: X10 plus lightweight X11; X12 enriches it.** Turn a suggestion into something Jas can actually film and an editor can understand.
 
 For a human-selected topic, prepare a versioned brief with one intended viewer, one learning outcome, a platform, target duration, one primary success measure and one next action. Offer a few genuinely different hooks: demonstration/challenge, relatable problem, or specific useful result. Explain the audience fit and cite own-channel examples when available; never promise a view count.
