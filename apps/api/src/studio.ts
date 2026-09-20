@@ -1,3 +1,4 @@
+import { createProductionRouter } from './production.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { bodyLimit } from 'hono/body-limit';
 import { Hono } from 'hono';
@@ -25,8 +26,8 @@ export function createStudioRouter(deps:StudioDependencies):Hono<StudioEnv> {
  app.use('*',bodyLimit({maxSize:150000,onError:c=>c.json({error:'body_too_large'},413)}));
  app.onError((e,c)=>{
   if(e instanceof z.ZodError)return c.json({error:'invalid_body',issues:e.issues.map(i=>({path:i.path,message:i.message}))},400);
-  if(['version_conflict','request_conflict','duplicate_evidence','generation_already_requested'].includes(e.message))return c.json({error:e.message},409);
-  if(['select_hook_first','draft_required','invalid_evidence_reference','review_checks_required','factual_confirmation_required','beat_outside_duration'].includes(e.message))return c.json({error:e.message},400);
+  if(['version_conflict','request_conflict','duplicate_evidence','generation_already_requested','duplicate_lineage'].includes(e.message))return c.json({error:e.message},409);
+  if(['select_hook_first','draft_required','invalid_evidence_reference','review_checks_required','factual_confirmation_required','beat_outside_duration','asset_version_duplicate','asset_required','invalid_revision_request','brief_version_locked','asset_version_immutable','revision_history_required','posted_item_locked','invalid_stage_transition','approved_brief_required','unresolved_blockers','unresolved_revisions','production_checks_required'].includes(e.message))return c.json({error:e.message},400);
   return c.json({error:'studio_unavailable'},503);
  });
  app.get('/memory/:id',async c=>{
@@ -126,5 +127,6 @@ export function createStudioRouter(deps:StudioDependencies):Hono<StudioEnv> {
   const body=approveBrief(BriefBodySchema.parse(old.body),c.get('auth')!.email,c.get('auth')!.role,e.expectedVersion+1,e.factualConfirmation);
   return c.json(await deps.store.save({id,kind:'brief',entityKey:id,expectedVersion:e.expectedVersion,requestId:e.requestId,body,actor:c.get('auth')!.email}));
  });
+ app.route('/production',createProductionRouter(deps));
  return app;
 }
