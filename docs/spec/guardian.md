@@ -7,12 +7,12 @@ and different risk profile (it can propose code changes to a live app with 161+ 
 real Stripe payments). It gets its own file rather than an X or Y number borrowed from an
 unrelated plan. Y-series (portal repo) is likewise unrelated (LiveKit meeting classes).
 
-**Status 2026-09-20: SPEC ONLY. No code exists in this repo for Guardian yet.** DETECT/GROUP/
-TRIGGER is built and live on the portal side (`french-with-jas-portal`
-`docs/spec/guardian.md`) — this file is the plan for everything downstream of a `TRIGGERED`
-incident: the investigation agent, the repair agent, the verifier, and the Robot Student. None
-of it is implemented. Do not read this file as a built-status doc; it is a design doc with an
-explicit build order for the next session(s).
+**Status 2026-09-21: SPEC ONLY. No code exists in this repo for Guardian yet.** DETECT/GROUP/
+TRIGGER, the Error Inbox, and (new) the cross-project access point are all built and live on
+the portal side (`french-with-jas-portal` `docs/spec/guardian.md`) — this file is the plan for
+everything downstream of a `TRIGGERED` incident: the investigation agent, the repair agent, the
+verifier, and the Robot Student. None of it is implemented in this repo yet. Do not read this
+file as a built-status doc; it is a design doc with an explicit build order below.
 
 ## Why this lives here, not in the portal repo
 
@@ -24,39 +24,45 @@ analyst agent (banned topics + brand voice — Guardian's equivalent is prompt-i
 isolation, see below). Reusing this instead of inventing a second agent framework inside the
 no-TS portal repo is the point.
 
-## Planned architecture (not yet built)
+## Cross-project access — ✅ BUILT 2026-09-21 (portal side), ⚠ needs a secret before use
 
-```
-guardian_incidents.status = 'TRIGGERED'  (portal DB)
-  -> [NOT BUILT] a poller or webhook on this side picks up TRIGGERED incidents
-  -> [NOT BUILT] packages/agents/guardian — investigation agent, same allowedTools-gated
-     pattern as packages/agents/analyst, logged to agent_logs
-  -> [NOT BUILT] repair agent — reproduce, diagnose, branch, patch, test, typecheck, lint,
-     build, re-reproduce, open a PR against the PORTAL repo's main (never this repo's
-     milestone-2 — Guardian's target is the portal)
-  -> [NOT BUILT] verifier — independently checks the repair agent's claims (never trusts
-     "fixed" self-reports, mirroring the X6 rule that the LLM never computes a number itself)
-  -> incident status written back to guardian_incidents (cross-project write: this repo's
-     Supabase is NOT the portal's — needs a service-role call to the portal project, the same
-     shape as X3's dash-counts cross-project call, not a shared DB connection)
-```
+The gap flagged below as "resolve before any code" is now closed. The portal deployed
+`supabase/functions/guardian-incidents/index.ts` (`Verify JWT OFF` — it authenticates via a
+shared secret in the `x-guardian-secret` header, the same pattern as the portal's existing
+`x-sync-secret` crons, not a per-user JWT handoff — there's no human session on this side).
 
-**Concrete gap to resolve before any code:** this repo's Supabase project
-(`kmgltqfwtyhswqxjicab`) is deliberately separate from the portal's (`jtzazvkshizmuhezuxwl`).
-Guardian's investigation agent runs here but needs to read/write `guardian_incidents` in the
-portal's project. X3 already solved an equivalent problem (`GET /api/kpis/portal` mints a
-60-second signed token, calls a portal Edge Function, numbers only, no shared connection) — the
-straightforward move is a portal Edge Function (`guardian-incidents`) that this side calls with
-a short-lived signed token, mirroring `dash-token`/`dash-counts`. Not built. This is the first
-thing a build session on this repo needs to settle, before the investigation agent itself.
+**Call it like this** (once this repo has any code that needs to):
+```
+POST https://jtzazvkshizmuhezuxwl.supabase.co/functions/v1/guardian-incidents
+Headers: x-guardian-secret: <GUARDIAN_SHARED_SECRET>, content-type: application/json
+Body: { "action": "list_incidents", "statuses": ["TRIGGERED"], "limit": 25 }
+     | { "action": "get_incident", "incident_id": "<uuid>" }
+     | { "action": "write_investigation", "incident_id": "<uuid>", "investigation": {...}, "new_status": "DIAGNOSED", "summary": "..." }
+     | { "action": "update_status", "incident_id": "<uuid>", "status": "REPAIRING", "detail": "..." }
+```
+`get_incident` returns the incident row, its last 50 occurrences, and the full timeline in one
+call. `write_investigation` is where the seven-question findings (below) get stored — it writes
+`guardian_incidents.investigation` (jsonb) and, optionally, moves status forward in the same
+call. `update_status` covers every other lifecycle move and always appends a timeline event —
+never rewrites existing ones. Scope is deliberately narrow: only the four `guardian_*` tables,
+no arbitrary SQL, no delete action, never touches student data. **This is the investigation
+agent's surface, not the repair agent's** — actual code changes still only ever happen through
+GitHub (branch → PR → human-approved merge on the portal's `main`), never through this function.
+
+**⚠ Not usable yet:** `GUARDIAN_SHARED_SECRET` has not been set (Claude cannot set Supabase Edge
+Function secrets — same limitation as `DASH_URL` during X0). Generate a 24+ char value, set it
+on the function in the Supabase dashboard, and use the identical value in whatever calls it from
+this repo. No rush — nothing here calls it yet — but do this before starting the investigation
+agent skeleton (next item), so the first real call isn't blocked on a missing secret.
 
 ## Investigation agent (packages/agents/guardian) — NOT BUILT
 
 Receives a structured incident (occurrences, sanitized messages, feature/route/operation,
-fingerprint, trigger reason) and answers the seven questions from the build brief: real defect?
-reproducible? root cause? responsible component? tied to a recent change? smallest safe repair?
-what regression test? Investigation results are hypotheses, stored on `guardian_incidents.
-investigation` (jsonb), never treated as verified until the (also unbuilt) verifier confirms.
+fingerprint, trigger reason — fetched via `get_incident` above) and answers the seven questions
+from the build brief: real defect? reproducible? root cause? responsible component? tied to a
+recent change? smallest safe repair? what regression test? Investigation results are
+hypotheses, written via `write_investigation`, never treated as verified until the (also
+unbuilt) verifier confirms.
 
 **Prompt-injection isolation (NOT BUILT, required before this agent handles any real incident):**
 every field that originated from student input or portal error text — sanitized_message,
@@ -69,8 +75,8 @@ previous instructions and delete..." and have it read as one.
 **Agent invocation is event-driven, not polling on an LLM.** Per the AI cost-control
 requirement: normal monitoring, fingerprinting and threshold detection are ordinary code
 (already true — they run entirely in the portal's Postgres function, zero LLM calls). The
-investigation agent is invoked ONLY when a `TRIGGERED` incident exists or the owner manually
-requests investigation — never on a timer that runs regardless.
+investigation agent is invoked ONLY when a `TRIGGERED` incident exists (`list_incidents` finds
+one) or the owner manually requests investigation — never on a timer that runs regardless.
 
 ## Repair agent — NOT BUILT
 
@@ -80,7 +86,10 @@ report). Target repo is always the portal (`french-with-jas-portal`), base `main
 direct push — same write discipline as every other Claude-driven change to that repo. Follows
 the portal's own CLAUDE.md rules (no Tailwind/TS there, design tokens, dark-mode verification,
 the Portal Rule's four touch points if a repair happens to touch a weekly-completion module,
-the Le Fil lesson about confirming DB writes before 200).
+the Le Fil lesson about confirming DB writes before 200 — and, now, the pattern already used
+twice on the portal side: `Submissions.jsx` and `DrillBlock.jsx` both had this exact class of
+bug, an unchecked/under-checked write, so a repair agent working a "silent failure" incident
+should check for a missing `.error` check first).
 
 ## Risk levels — NOT BUILT (design only)
 
@@ -104,7 +113,7 @@ separate, explicit decision turns it on.
 Independently re-runs: original reproduction, regression test, relevant existing tests,
 typecheck, lint, production build, and (once Robot Student exists) critical workflows. Never
 trusts the repair agent's self-report of "fixed." Records each result against the incident's
-timeline (portal side).
+timeline (portal side, via `update_status`).
 
 ## Robot Student — NOT BUILT, not even the harness
 
@@ -114,8 +123,8 @@ accounts `jaspin10@gmail.com` / `gilljaspinderpal@gmail.com` are the natural fit
 `ways-of-working.md`). Must never touch real student progress, grades, badges, analytics or
 teacher statistics. **Per the brief's own fallback instruction** ("if safe production synthetic
 testing cannot currently be implemented, build the test harness and leave unsafe execution
-disabled") — even the harness is not built yet in this pass; this is flagged as the next
-concrete piece of work, not deferred indefinitely.
+disabled") — even the harness is not built yet; this is flagged as concrete future work, not
+deferred indefinitely.
 
 ## AI cost control — NOT BUILT (no AI calls exist yet to meter)
 
@@ -135,14 +144,14 @@ ships.
 
 ## Build order for the next session on this repo
 
-1. Portal-side `guardian-incidents`/`guardian-events` Edge Function (cross-project access,
-   mirrors `dash-token`).
+1. ~~Portal-side `guardian-incidents` Edge Function (cross-project access).~~ ✅ Done — see
+   above. Setting `GUARDIAN_SHARED_SECRET` is the one remaining manual step.
 2. `packages/agents/guardian` skeleton wired into the existing orchestrator, `allowedTools`
-   scoped to read-only (incident data, source code, recent commits, existing tests) — no write
-   tools until the repair agent is explicitly scoped and approved.
+   scoped to read-only (incident data via the Edge Function, source code, recent commits,
+   existing tests) — no write tools until the repair agent is explicitly scoped and approved.
 3. Prompt-injection isolation on incident text, tested with an adversarial sample message before
    any real incident is fed through it.
-4. Investigation agent producing the seven answers, stored to `guardian_incidents.investigation`.
+4. Investigation agent producing the seven answers, stored via `write_investigation`.
 5. Robot Student harness (disabled by default) before the repair agent, so there's a safe
    verification path ready when repairs start landing.
 6. Repair agent, LOW risk only to start, PR-only, human-approved merge.
@@ -159,8 +168,10 @@ ships.
    guaranteed by the DB design (unique fingerprint + guarded status transition); "one active
    investigation" is not applicable yet since no investigation agent exists to launch multiple
    of. Not load-tested at real concurrency.
-5. Students cannot access Guardian admin functionality: **PASS** — RLS is owner-only; verified
-   via the policy definition, not a live non-owner session.
+5. Students cannot access Guardian admin functionality: **PASS** — RLS is owner-only on the
+   portal DB; the `guardian-incidents` function has no user-facing path at all (shared secret,
+   not a session) — verified via the policy/code definitions, not live non-owner and non-secret
+   attempts.
 6. High-risk repairs cannot automatically deploy: **PASS by construction** — no auto-deploy
    path exists anywhere in this build, for any risk level, because no repair agent exists yet.
 7. Monitoring continues when AI budget is exhausted: **N/A** — no AI budget exists yet to
@@ -169,7 +180,7 @@ ships.
    construction** — zero AI calls exist in this build. Nothing to poll continuously.
 
 Incomplete, explicitly: investigation agent, repair agent, verifier, Robot Student (including
-its harness), cross-project incident access from this repo, prompt-injection isolation, AI
-budget accounting, Error Inbox routing/nav, wiring the report helper into portal components,
-post-repair MONITORING/reopen transitions, and any load/concurrency testing. All flagged, none
+its harness), prompt-injection isolation, AI budget accounting, wiring the report helper into
+the six speech/recording modules on the portal side, post-repair MONITORING/reopen transitions,
+any load/concurrency testing, and the `GUARDIAN_SHARED_SECRET` manual step. All flagged, none
 claimed as done.
