@@ -1,156 +1,87 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { allowedBrainView, BRAIN_VIEWS, type BrainView } from '@platform/shared/browser';
 import { getMe, type Me } from './api.js';
-import { Suggestions } from './Suggestions.js';
-import { Performance } from './Performance.js';
-import { Analysis } from './Analysis.js';
-import { Kpis } from './Kpis.js';
-import { RunLog } from './RunLog.js';
-import { IdeaMap } from './IdeaMap.js';
-import { Metrics } from './Metrics.js';
-import { Insights } from './Insights.js';
+import { BrainLink, BrainNavigation, Icon } from './brain-ui.js';
+import { Guide } from './Guide.js';
 
-const ALL_PANELS = ['Analysis', 'Metrics', 'Insights', 'Suggestions', 'Idea map', 'Performance', 'KPIs', 'Run log'] as const;
-type Panel = (typeof ALL_PANELS)[number];
+const Brain = lazy(()=>import('./Brain.js').then(m=>({default:m.Brain})));
+const Performance = lazy(()=>import('./Performance.js').then(m=>({default:m.Performance})));
+const Analysis = lazy(()=>import('./Analysis.js').then(m=>({default:m.Analysis})));
+const Metrics = lazy(()=>import('./Metrics.js').then(m=>({default:m.Metrics})));
+const Insights = lazy(()=>import('./Insights.js').then(m=>({default:m.Insights})));
+const Suggestions = lazy(()=>import('./Suggestions.js').then(m=>({default:m.Suggestions})));
+const IdeaMap = lazy(()=>import('./IdeaMap.js').then(m=>({default:m.IdeaMap})));
+const AudienceResearch = lazy(()=>import('./AudienceResearch.js').then(m=>({default:m.AudienceResearch})));
+const BriefWorkspace = lazy(()=>import('./BriefWorkspace.js').then(m=>({default:m.BriefWorkspace})));
+const ProductionBoard = lazy(()=>import('./ProductionBoard.js').then(m=>({default:m.ProductionBoard})));
+const Learnings = lazy(()=>import('./Learnings.js').then(m=>({default:m.Learnings})));
+const Kpis = lazy(()=>import('./Kpis.js').then(m=>({default:m.Kpis})));
+const RunLog = lazy(()=>import('./RunLog.js').then(m=>({default:m.RunLog})));
 
-/**
- * X0 role permissions (locked, docs/spec/x-series.md):
- *   owner     — everything
- *   marketing — Analysis (X1), Metrics (X2), Insights (X6), Suggestions, Idea map, Performance.
- *               No revenue anywhere, no Run log.
- * The API enforces this on every route; this list only decides what to draw.
- */
-const PANELS_BY_ROLE: Record<Me['role'], readonly Panel[]> = {
-  owner: ALL_PANELS,
-  marketing: ['Analysis', 'Metrics', 'Insights', 'Suggestions', 'Idea map', 'Performance'],
+const WORKSPACES: Array<{name:string;icon:string;views:BrainView[]}> = [
+  {name:'Brain',icon:'brain',views:['brain']},
+  {name:'Audience',icon:'audience',views:['audience']},
+  {name:'Create',icon:'creative',views:['suggestions','idea-map','briefs','production']},
+  {name:'Results',icon:'results',views:['performance','analysis','metrics']},
+  {name:'Learnings',icon:'learning',views:['learnings','insights']},
+  {name:'Business',icon:'strategy',views:['kpis']},
+  {name:'System',icon:'system',views:['run-log']},
+];
+const COPY: Record<BrainView,{title:string;description:string;tab:string}> = {
+  brain:{title:'Your marketing brain.',description:'One connected loop. Every idea has a path; every decision starts with evidence.',tab:'Overview'},
+  audience:{title:'Start with a real question.',description:'Collect the audience evidence that makes the next lesson useful.',tab:'Audience research'},
+  suggestions:{title:'Make the next video count.',description:'Choose an idea, shape its brief, and move it through human review.',tab:'Suggestions'},
+  'idea-map':{title:'Ideas, connected to evidence.',description:'Follow a hypothesis from its sources to the work it inspired.',tab:'Ideas & hypotheses'},
+  briefs:{title:'From an idea to a useful lesson.',description:'Choose a hook, shape the script, then approve the exact teaching brief.',tab:'Briefs'},
+  production:{title:'Keep the work moving.',description:'One concept, one clear handoff, one reviewed export.',tab:'Production'},
+  performance:{title:'What happened. What to try next.',description:'Inspect results with their evidence, limitations and content journey.',tab:'Videos & diagnosis'},
+  analysis:{title:'Give each video its context.',description:'Human observations make later patterns more useful. This is the original Analysis editor.',tab:'Content notes'},
+  metrics:{title:'Look behind the numbers.',description:'Compare snapshots, cross-platform twins and the original X2 calculations.',tab:'Metrics & twins'},
+  learnings:{title:'What we are learning.',description:'Our history, its evidence, and the next question worth testing.',tab:'Creative memory'},
+  insights:{title:'Read the pattern report.',description:'Platform-specific findings and suggested tags, with the standing cautions intact.',tab:'Pattern reports'},
+  kpis:{title:'Business visibility.',description:'Owner-only enrollment visibility and weekly analysis progress.',tab:'Business KPIs'},
+  'run-log':{title:'The recorded system activity.',description:'Owner-only audit trail for completed, rejected and failed agent calls.',tab:'Run log'},
 };
-
-const PANEL_COPY: Record<Panel, string> = {
-  Analysis: 'Give every video the context that makes your next decision better.',
-  Metrics: 'Compare video results, snapshots and cross-platform twins.',
-  Insights: 'Understand the patterns in your content, with the evidence in view.',
-  Suggestions: 'Turn audience questions into reviewed ideas, briefs and videos.',
-  'Idea map': 'Explore the connections between suggestions and their evidence.',
-  Performance: 'Review your published videos and compare their latest results.',
-  KPIs: 'Follow enrollment visibility and your weekly analysis progress.',
-  'Run log': 'Review agent activity, outcomes and errors.',
-};
-const PANEL_ICONS: Record<Panel, string> = {
-  Analysis: '▤', Metrics: '▥', Insights: '◈', Suggestions: '✦',
-  'Idea map': '◎', Performance: '↗', KPIs: '◷', 'Run log': '≡',
-};
-
-/**
- * Same-domain (2026-09): the URL bar now reflects the open panel, e.g.
- * portal.frenchwithjas.ca/analytics/analysis. BASE_PATH must match the
- * apps/api basePath and the Vercel rewrite target exactly, or a refresh on
- * a deep link 404s instead of hitting the SPA fallback.
- */
-const BASE_PATH = '/analytics';
-
-const PANEL_SLUGS: Record<Panel, string> = {
-  Analysis: 'analysis',
-  Metrics: 'metrics',
-  Insights: 'insights',
-  Suggestions: 'suggestions',
-  'Idea map': 'idea-map',
-  Performance: 'performance',
-  KPIs: 'kpis',
-  'Run log': 'run-log',
-};
-const SLUG_TO_PANEL: Record<string, Panel> = Object.fromEntries(
-  ALL_PANELS.map((p) => [PANEL_SLUGS[p], p])
-) as Record<string, Panel>;
-
-/** '/analytics/metrics' → 'Metrics'; '/analytics', '/analytics/', or anything unrecognised → null (caller picks the default). */
-function panelFromLocation(): Panel | null {
-  const path = window.location.pathname;
-  const rest = path.startsWith(BASE_PATH) ? path.slice(BASE_PATH.length) : path;
-  const slug = rest.replace(/^\/|\/$/g, '');
-  return slug === '' ? null : (SLUG_TO_PANEL[slug] ?? null);
+function routeFromLocation():{view:BrainView;search:string} {
+  const slug=window.location.pathname.split('/').filter(Boolean).filter(s=>s!=='analytics').join('/');
+  return {view:BRAIN_VIEWS.includes(slug as BrainView)?slug as BrainView:'brain',search:window.location.search};
 }
-
-function urlForPanel(panel: Panel): string {
-  return `${BASE_PATH}/${PANEL_SLUGS[panel]}`;
-}
-
 export function App() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [panel, setPanel] = useState<Panel>(() => panelFromLocation() ?? 'Analysis');
-
-  useEffect(() => {
-    getMe().then(setMe).catch((e: Error) => setError(e.message));
-  }, []);
-
-  // Back/forward navigates between panels too, not just away from the app.
-  useEffect(() => {
-    function onPopState() {
-      const fromUrl = panelFromLocation();
-      if (fromUrl !== null) setPanel(fromUrl);
-    }
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
-
-  function selectPanel(next: Panel): void {
-    setPanel(next);
-    const target = urlForPanel(next);
-    if (window.location.pathname !== target) {
-      window.history.pushState(null, '', target);
-    }
+  const [me,setMe]=useState<Me|null>(null),[error,setError]=useState<string|null>(null),[route,setRoute]=useState(routeFromLocation);
+  useEffect(()=>{getMe().then(setMe).catch(e=>setError(e.message));},[]);
+  useEffect(()=>{const pop=()=>setRoute(routeFromLocation());window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
+  const view=me&&allowedBrainView(route.view,me.role)?route.view:'brain';
+  function navigate(url:string) {
+    if(window.location.pathname+window.location.search!==url)window.history.pushState(null,'',url);
+    setRoute(routeFromLocation());
+    document.getElementById('main-content')?.focus({preventScroll:true});
+    window.scrollTo({top:0,behavior:'instant'});
   }
-
-  // A role-gated bounce (e.g. marketing landed on a deep link to Run log)
-  // should also correct the URL, not just what's drawn. Also replaces,
-  // rather than pushes, the very first render's default URL (no explicit
-  // panel in the path) so "/analytics" itself doesn't sit in history as a
-  // separate back-stop from "/analytics/analysis". Every hook stays above
-  // the early returns below (Rules of Hooks) — this one is a no-op until
-  // `me` resolves.
-  useEffect(() => {
-    if (me === null) return;
-    const panels = PANELS_BY_ROLE[me.role];
-    const current: Panel = panels.includes(panel) ? panel : panels[0] ?? 'Suggestions';
-    if (current !== panel) {
-      selectPanel(current);
-    } else if (window.location.pathname === BASE_PATH || window.location.pathname === `${BASE_PATH}/`) {
-      window.history.replaceState(null, '', urlForPanel(current));
+  useEffect(()=>{
+    if(!me)return;
+    if(!allowedBrainView(route.view,me.role)||window.location.pathname==='/analytics'||window.location.pathname==='/analytics/') {
+      window.history.replaceState(null,'','/analytics/brain');setRoute(routeFromLocation());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me, panel]);
-
-  if (error !== null) return <div className="card session-state" role="alert"><h1>Unable to open your workspace</h1><p>{error}</p><button className="btn" onClick={() => window.location.reload()}>Try again</button></div>;
-  if (me === null) return <div className="card session-state" role="status"><span className="eyebrow">French with Jas</span><h1>Opening your workspace…</h1><p className="dim">Checking your session.</p></div>;
-
-  const panels = PANELS_BY_ROLE[me.role];
-  const current: Panel = panels.includes(panel) ? panel : panels[0] ?? 'Suggestions';
-
-  return (
-    <div className="layout">
-      <aside className="sidebar">
-        <a className="skip-link" href="#main-content">Skip to content</a>
-        <div className="logo"><span className="brand-mark" aria-hidden="true">J.</span><div>French with Jas<span>Marketing workspace</span></div></div>
-        <nav aria-label="Marketing workspace">
-          <div className="nav-label">Workspace</div>
-          {panels.map((p) => (
-            <button key={p} className={`nav-item ${p === current ? 'active' : ''}`} aria-current={p === current ? 'page' : undefined} onClick={() => selectPanel(p)}>
-              <span className="nav-icon" aria-hidden="true">{PANEL_ICONS[p]}</span>{p}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-account"><span className="account-avatar" aria-hidden="true">{me.email.slice(0, 1).toUpperCase()}</span><div><span className="account-email" title={me.email}>{me.email}</span><span className="account-role">{me.role} workspace</span></div></div>
-      </aside>
-      <main className="main" id="main-content" tabIndex={-1}>
-        <header className="page-header"><div><div className="eyebrow">French with Jas / Marketing</div><h1>{current}</h1><p>{PANEL_COPY[current]}</p></div><span className="workspace-badge">Human-led creative work</span></header>
-        {current === 'Analysis' ? <Analysis /> :
-         current === 'Metrics' ? <Metrics /> :
-         current === 'Insights' ? <Insights /> :
-         current === 'Suggestions' ? <Suggestions /> :
-         current === 'Idea map' ? <IdeaMap /> :
-         current === 'Performance' ? <Performance /> :
-         current === 'KPIs' ? <Kpis /> :
-         <RunLog />}
-      </main>
-    </div>
-  );
+  },[me,route.view]);
+  if(error)return <div className="card session-state" role="alert"><h1>Unable to open your workspace</h1><p>{error}</p><button className="btn" onClick={()=>window.location.reload()}>Try again</button></div>;
+  if(!me)return <div className="card session-state" role="status"><span className="eyebrow">French with Jas</span><h1>Opening your workspace…</h1><p className="dim">Checking your session.</p></div>;
+  const workspace=WORKSPACES.find(w=>w.views.includes(view))!;
+  return <BrainNavigation.Provider value={navigate}><div className="layout">
+    <aside className="sidebar">
+      <a className="skip-link" href="#main-content">Skip to content</a>
+      <div className="logo"><span className="brand-mark">J.</span><div>French with Jas<span>MARKETING INTELLIGENCE</span></div></div>
+      <nav aria-label="Marketing workspaces"><div className="nav-label">Your learning loop</div>{WORKSPACES.filter(w=>allowedBrainView(w.views[0]!,me.role)).map(w=>
+        <BrainLink key={w.name} to={{view:w.views[0]!}} className={'nav-item '+(w===workspace?'active':'')} aria-current={w===workspace?'page':undefined}><Icon name={w.icon}/><span>{w.name}</span><span className="nav-arrow" aria-hidden="true">↗</span></BrainLink>
+      )}</nav>
+      <div className="sidebar-principle"><span className="eyebrow">THE WAY WE WORK</span><p>Evidence informs.<br/>People decide.</p><span>No automatic publishing</span></div>
+      <div className="sidebar-account"><span className="account-avatar">{me.email.slice(0,1).toUpperCase()}</span><div><span className="account-email" title={me.email}>{me.email}</span><span className="account-role">{me.role} workspace</span></div></div>
+    </aside>
+    <main className="main" id="main-content" tabIndex={-1}>
+      <header className="page-header"><div><div className="eyebrow">MARKETING / {workspace.name}</div><h1>{COPY[view].title}</h1><p>{COPY[view].description}</p></div><Guide key={view} area={view}/></header>
+      {workspace.views.length>1&&<nav className="workspace-tabs" aria-label={workspace.name+' views'}>{workspace.views.map(v=><BrainLink key={v} to={{view:v}} className={view===v?'selected':''} aria-current={view===v?'page':undefined}>{COPY[v].tab}</BrainLink>)}</nav>}
+      <Suspense fallback={<div className="card" role="status">Opening workspace…</div>}><div key={view+route.search}>
+        {view==='brain'?<Brain/>:view==='audience'?<AudienceResearch standalone/>:view==='suggestions'?<Suggestions/>:view==='idea-map'?<IdeaMap/>:view==='briefs'?<BriefWorkspace/>:view==='production'?<ProductionBoard standalone/>:view==='performance'?<Performance/>:view==='analysis'?<Analysis/>:view==='metrics'?<Metrics/>:view==='learnings'?<Learnings/>:view==='insights'?<Insights/>:view==='kpis'?<Kpis/>:<RunLog/>}
+      </div></Suspense>
+    </main>
+  </div></BrainNavigation.Provider>;
 }

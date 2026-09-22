@@ -1,110 +1,40 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getJson, type ContentRow, type PerformanceRecord } from './api.js';
-
-interface VideoRow {
-  platform: string;
-  title: string;
-  views: number;
-  engagementPct: number | null;
-  sharePct: number | null;
-  retentionPct: number | null;
-  hypothesis: string | null;
-}
-
-type SortKey = 'views' | 'engagementPct' | 'sharePct' | 'retentionPct';
+import { useMemo, useState } from 'react';
+import { BRAIN_OUTCOME_LABELS, type BrainOutcome } from '@platform/shared/browser';
+import { BrainLink, BrainLoading, BrainSourceNotice, useBrain, number, percent, date } from './brain-ui.js';
+import { VideoDiagnosis } from './VideoDiagnosis.js';
 
 export function Performance() {
-  const [data, setData] = useState<{ content: ContentRow[]; performance: PerformanceRecord[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [platform, setPlatform] = useState<string>('all');
-  const [sortKey, setSortKey] = useState<SortKey>('views');
-
-  useEffect(() => {
-    getJson<{ content: ContentRow[]; performance: PerformanceRecord[] }>('/api/content-performance')
-      .then(setData)
-      .catch((e: Error) => setError(e.message));
-  }, []);
-
-  const rows = useMemo<VideoRow[]>(() => {
-    if (data === null) return [];
-    // X2 (migration 0009): join on content UUID; native-id fallback only for a row the trigger couldn't resolve.
-    const uuidByNative = new Map(data.content.filter((c) => c.id !== undefined).map((c) => [c.platformVideoId, c.id as string] as const));
-    const latest = new Map<string, PerformanceRecord>();
-    for (const p of data.performance) {
-      const key = p.contentUuid ?? uuidByNative.get(p.contentId);
-      if (key === undefined) continue;
-      const existing = latest.get(key);
-      if (existing === undefined || p.capturedDate > existing.capturedDate) latest.set(key, p);
-    }
-    const out: VideoRow[] = [];
-    for (const c of data.content) {
-      if (c.id === undefined) continue;
-      const p = latest.get(c.id);
-      if (p === undefined) continue;
-      const m = p.metrics;
-      out.push({
-        platform: c.platform,
-        title: c.title ?? '(untitled)',
-        views: m.views,
-        engagementPct: m.views > 0 ? ((m.likes + m.comments + m.shares) / m.views) * 100 : null,
-        sharePct: m.views > 0 ? (m.shares / m.views) * 100 : null,
-        retentionPct: m.retentionPct,
-        hypothesis: c.hypothesis,
-      });
-    }
-    return out;
-  }, [data]);
-
-  const visible = useMemo(() => {
-    const filtered = platform === 'all' ? rows : rows.filter((r) => r.platform === platform);
-    return [...filtered].sort((a, b) => (b[sortKey] ?? -1) - (a[sortKey] ?? -1));
-  }, [rows, platform, sortKey]);
-
-  if (error !== null) return <div className="card dim">API error: {error}</div>;
-  if (data === null) return <div className="card dim">Loading…</div>;
-
-  const platforms = ['all', ...new Set(rows.map((r) => r.platform))];
-  const pct = (v: number | null): string => (v === null ? '—' : `${v.toFixed(2)}%`);
-
-  return (
-    <div className="card">
-      <div style={{ marginBottom: 12 }}>
-        {platforms.map((p) => (
-          <button key={p} className={`chip ${p === platform ? 'active' : ''}`} aria-pressed={p === platform}
-            style={{ display: 'inline-block', width: 'auto', marginRight: 6 }}
-            onClick={() => setPlatform(p)}>
-            {p}
-          </button>
-        ))}
-        <span className="dim" style={{ marginLeft: 8 }}>{visible.length} videos · click headers to sort</span>
-      </div>
-      <div className="table-scroll" role="region" aria-label="Scrollable performance table" tabIndex={0}><table>
-        <thead>
-          <tr>
-            <th>Platform</th>
-            <th>Title</th>
-            <th aria-sort={sortKey === 'views' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('views')}>Views {sortKey === 'views' ? '▾' : '↕'}</button></th>
-            <th aria-sort={sortKey === 'engagementPct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('engagementPct')}>Engagement {sortKey === 'engagementPct' ? '▾' : '↕'}</button></th>
-            <th aria-sort={sortKey === 'sharePct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('sharePct')}>Share rate {sortKey === 'sharePct' ? '▾' : '↕'}</button></th>
-            <th aria-sort={sortKey === 'retentionPct' ? 'descending' : 'none'}><button className="sort-button" onClick={() => setSortKey('retentionPct')}>Retention {sortKey === 'retentionPct' ? '▾' : '↕'}</button></th>
-            <th>Tag</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((r, i) => (
-            <tr key={i}>
-              <td>{r.platform}</td>
-              <td style={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.title}>{r.title}</td>
-              <td>{r.views.toLocaleString()}</td>
-              <td>{pct(r.engagementPct)}</td>
-              <td>{pct(r.sharePct)}</td>
-              <td>{r.retentionPct === null ? '—' : `${r.retentionPct.toFixed(1)}%`}</td>
-              <td className="dim">{r.hypothesis ?? '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table></div>
-      {visible.length === 0 && <div className="empty-state"><strong>No performance snapshots yet</strong><p>Results appear after published videos have been synced.</p></div>}
+  const {data,error,refresh}=useBrain();
+  const params=new URLSearchParams(window.location.search),id=params.get('id');
+  const [platform,setPlatform]=useState('all'),[outcome,setOutcome]=useState(params.get('filter')??'all');
+  const [search,setSearch]=useState(''),[sort,setSort]=useState('recent'),[limit,setLimit]=useState(60);
+  const visible=useMemo(()=>{
+    const q=search.trim().toLowerCase();
+    return (data?.videos??[]).filter(v=>(platform==='all'||v.platform===platform)&&(outcome==='all'||v.outcome===outcome)&&(!q||(v.title??'').toLowerCase().includes(q)||v.platformVideoId.includes(q))).sort((a,b)=>{
+      const group=platform==='all'?a.platform.localeCompare(b.platform):0;
+      if(group)return group;
+      if(sort==='views')return (b.metrics?.views??-1)-(a.metrics?.views??-1);
+      if(sort==='engagement')return (b.rates?.engagementRatePct??-1)-(a.rates?.engagementRatePct??-1);
+      if(sort==='shares')return (b.rates?.shareRatePct??-1)-(a.rates?.shareRatePct??-1);
+      if(sort==='retention')return (b.metrics?.retentionPct??-1)-(a.metrics?.retentionPct??-1);
+      return b.postedAt.localeCompare(a.postedAt);
+    });
+  },[data,platform,outcome,search,sort]);
+  if(!data)return <BrainLoading error={error} retry={refresh}/>;
+  const selected=data.videos?.find(v=>v.id===id);
+  if(id&&selected)return <><BrainLink className="back-link" to={{view:'performance'}}>← All published videos</BrainLink><BrainSourceNotice data={data}/><VideoDiagnosis video={selected} data={data}/></>;
+  const platforms=[...new Set((data.videos??[]).map(v=>v.platform))].sort();
+  return <><BrainSourceNotice data={data}/>
+    {id&&!selected&&<div className="notice warning">This video is unavailable in the current data. Try refreshing or return to its content notes.</div>}
+    <div className="results-summary">{(['above','typical','below','insufficient','unmeasured'] as BrainOutcome[]).map(o=><button key={o} className={'outcome-filter '+(outcome===o?'selected':'')} aria-pressed={outcome===o} onClick={()=>{setOutcome(outcome===o?'all':o);setLimit(60);}}><span className={'outcome-dot outcome-'+o}/><strong>{data.videos?number(data.videos.filter(v=>v.outcome===o).length):'—'}</strong><span>{BRAIN_OUTCOME_LABELS[o]}</span></button>)}</div>
+    <div className="card"><div className="results-tools"><label>Find a video<input className="input" placeholder="Search title or platform ID" value={search} onChange={e=>{setSearch(e.target.value);setLimit(60);}}/></label><label>Platform<select className="select" value={platform} onChange={e=>{setPlatform(e.target.value);setLimit(60);}}><option value="all">All platforms, grouped</option>{platforms.map(p=><option key={p}>{p}</option>)}</select></label><button className="btn" onClick={()=>{setOutcome('all');setSearch('');setPlatform('all');}}>Clear filters</button></div>
+      <p className="hint table-caption">{visible.length} videos · latest recorded metrics · sort within each platform. Outcome compares exact day 1, 7 or 30 engagement to at least 8 other comparable videos.</p>
+      <div className="table-scroll" role="region" aria-label="Published video results" tabIndex={0}><table className="results-table"><thead><tr><th>Video / platform</th>{[['recent','Posted'],['views','Views'],['engagement','Engagement'],['shares','Share rate'],['retention','Avg. retention']].map(([key,label])=><th key={key} aria-sort={sort===key?'descending':'none'}><button className="sort-button" onClick={()=>setSort(key!)}>{label} {sort===key?'↓':'↕'}</button></th>)}<th>Comparison</th></tr></thead><tbody>
+        {visible.slice(0,limit).map(v=><tr key={v.id}><td><BrainLink to={{view:'performance',id:v.id}} className="video-title">{v.title??'Untitled video'}</BrainLink><span className="subtle-label">{v.platform}{v.stale?' · snapshot needs refresh':''}</span></td><td>{date(v.postedAt)}</td><td>{number(v.metrics?.views)}</td><td>{percent(v.rates?.engagementRatePct)}</td><td>{percent(v.rates?.shareRatePct)}</td><td>{percent(v.metrics?.retentionPct)}</td><td><span className={'outcome-pill outcome-'+v.outcome}>{BRAIN_OUTCOME_LABELS[v.outcome]}</span>{v.comparison.day!==null&&<small className="subtle-label">day {v.comparison.day} · {v.comparison.n} peers</small>}</td></tr>)}
+      </tbody></table></div>
+      {!visible.length&&<div className="empty-state"><strong>{data.videos===null?'Results source unavailable':'No videos in this view'}</strong><p>{data.videos===null?'Retry after the source is available. The rest of the workspace is still accessible.':'Clear the filters or wait for published content to be ingested.'}</p></div>}
+      {visible.length>limit&&<button className="btn load-more" onClick={()=>setLimit(n=>n+60)}>Show next {Math.min(60,visible.length-limit)} videos</button>}
+      <p className="data-footnote">Legacy metric definitions can be unverified. Missing snapshots stay missing; unsupported shares show n/a. Open a video to inspect provenance and limitations.</p>
     </div>
-  );
+  </>;
 }

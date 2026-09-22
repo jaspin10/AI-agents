@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { StudioRecordSchema, type StudioRecord } from '@platform/shared';
 import { readSupabaseConfig } from './config.js';
+import { readPages } from './read-pages.js';
 export type { StudioRecord } from '@platform/shared';
 export interface StudioStore {
  revision(kind:string,id:string,version:number):Promise<StudioRecord|null>;
@@ -13,6 +14,7 @@ export interface StudioStore {
 
  get(kind:string,id:string):Promise<StudioRecord|null>;
  list(kind:string):Promise<StudioRecord[]>;
+ allMemories():Promise<StudioRecord[]>;
  history(kind:string,id:string):Promise<StudioRecord[]>;
  save(input:{id:string;kind:string;entityKey:string;expectedVersion:number;body:Record<string,unknown>;actor:string;requestId:string}):Promise<StudioRecord>;
 }
@@ -24,6 +26,7 @@ export function createStudioStore():StudioStore {
  if(new URL(config.url).hostname==='jtzazvkshizmuhezuxwl.supabase.co')throw new Error('Portal database prohibited for analyst Studio');
  const db=createClient(config.url,config.serviceRoleKey,{auth:{persistSession:false}});
  return {
+  async allMemories(){return (await readPages<Record<string,unknown>>((from,to)=>db.from('studio_records').select('*').eq('kind','memory').order('id').range(from,to))).map(parse);},
   async revision(kind,id,version){const {data,error}=await db.from('studio_revisions').select('*').eq('kind',kind).eq('id',id).eq('version',version).maybeSingle();if(error)throw new Error('studio_unavailable');return data?parse(data):null;},
   async lineage(recordId){const {data,error}=await db.from('production_lineage').select('*').eq('production_id',recordId).order('confirmed_at',{ascending:false});if(error)throw new Error('studio_unavailable');return data??[];},
   async confirmLineage(id,expectedVersion,contentId,actor,requestId){const {data,error}=await db.rpc('confirm_production_lineage',{p_id:id,p_expected:expectedVersion,p_content:contentId,p_actor:actor,p_request:requestId});if(error)throw new Error(error.code==='23505'?'duplicate_lineage':error.message.includes('version_conflict')?'version_conflict':error.message.includes('request_conflict')?'request_conflict':'lineage_confirmation_failed');return parse(data as Record<string,unknown>);},

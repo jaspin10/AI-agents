@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { readPages } from './read-pages.js';
 import {
   BrandAssetChunkSchema,
   ContentRowSchema,
@@ -396,8 +397,7 @@ export function createMemoryClientFromConfig(
         if (error) fail('content', 'upsert', error.message);
       },
       async all() {
-        const { data, error } = await db.from('content').select('*');
-        if (error) fail('content', 'select', error.message);
+        const data = await readPages((from, to) => db.from('content').select('*').order('id').range(from, to));
         return (data ?? []).map((r) => parseContentRow(r));
       },
       async findByPlatformVideoId(platformVideoId) {
@@ -478,8 +478,7 @@ export function createMemoryClientFromConfig(
         return (data ?? []).length;
       },
       async all() {
-        const { data, error } = await db.from('hypothesis_suggestions').select('*').order('created_at', { ascending: false });
-        if (error) fail('hypothesis_suggestions', 'select', error.message);
+        const data = await readPages<Record<string, unknown>>((from, to) => db.from('hypothesis_suggestions').select('*').order('created_at', { ascending: false }).order('id').range(from, to));
         return (data ?? []).map((r) => parseHypothesisSuggestion(r));
       },
       async byId(id) {
@@ -497,8 +496,7 @@ export function createMemoryClientFromConfig(
     },
     contentAnalysis: {
       async all() {
-        const { data, error } = await db.from('content_analysis').select('*');
-        if (error) fail('content_analysis', 'select', error.message);
+        const data = await readPages<Record<string, unknown>>((from, to) => db.from('content_analysis').select('*').order('content_id').range(from, to));
         return (data ?? []).map((r) => parseContentAnalysisRow(r));
       },
       async upsert(row) {
@@ -648,8 +646,7 @@ export function createMemoryClientFromConfig(
         if (error) fail('performance', 'upsert', error.message);
       },
       async all() {
-        const { data, error } = await db.from('performance').select('*');
-        if (error) fail('performance', 'select', error.message);
+        const data = await readPages((from, to) => db.from('performance').select('*').order('id').range(from, to));
         return (data ?? []).map((r) =>
           PerformanceRecordSchema.parse({
             id: r['id'],
@@ -809,8 +806,7 @@ export function createMemoryClientFromConfig(
         if (error) fail('suggestions', 'insert', error.message);
       },
       async all() {
-        const { data, error } = await db.from('suggestions').select('*');
-        if (error) fail('suggestions', 'select', error.message);
+        const data = await readPages((from, to) => db.from('suggestions').select('*').order('id').range(from, to));
         return (data ?? []).map((r) =>
           SuggestionRowSchema.parse({
             id: r['id'],

@@ -135,9 +135,9 @@ export function Analysis() {
   const [data, setData] = useState<AnalysisPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [platform, setPlatform] = useState<string>('all');
-  const [analysed, setAnalysed] = useState<AnalysedFilter>('all');
+  const [analysed, setAnalysed] = useState<AnalysedFilter>(() => new URLSearchParams(window.location.search).get('filter') === 'todo' ? 'todo' : 'all');
   const [search, setSearch] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('id'));
 
   useEffect(() => {
     getAnalysis().then(setData).catch((e: Error) => setError(e.message));

@@ -1,4 +1,6 @@
 import { runBriefGeneration } from './brief-runner.js';
+import { createBrainRouter } from './brain.js';
+import { createBrainLineageStore } from '@platform/memory';
 import { createStudioRouter } from './studio.js';
 import { createStudioStore } from '@platform/memory';
 import { serve } from '@hono/node-server';
@@ -12,7 +14,7 @@ import { sign, verify } from 'hono/jwt';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createMemoryClient, monthlyKpis, type ContentAnalysisRow } from '@platform/memory';
-import { AD_SPLIT_LABEL, adSplit, createLogger, followerNormalised, rates, velocity, type PerformanceRecord, type Snapshot } from '@platform/shared';
+import { AD_SPLIT_LABEL, adSplit, brainHistory, createLogger, followerNormalised, rates, velocity, type PerformanceRecord, type Snapshot } from '@platform/shared';
 import type { ContentRow } from '@platform/shared';
 import { z } from 'zod';
 
@@ -272,7 +274,9 @@ app.use('/api/*', async (c, next) => {
 });
 
 const memory = createMemoryClient();
-app.route('/api/studio', createStudioRouter({ memory, store: createStudioStore(), generate: runBriefGeneration }));
+const studioStore = createStudioStore();
+app.route('/api/studio', createStudioRouter({ memory, store: studioStore, generate: runBriefGeneration }));
+app.route('/api/brain', createBrainRouter({ memory, store: studioStore, lineage: createBrainLineageStore(), running: () => insightsRunning }));
 
 /** Who am I — lets the dash hide panels the caller cannot open. */
 app.get('/api/me', requireRole('owner', 'marketing'), (c) => {
@@ -322,19 +326,10 @@ app.get('/api/content-performance', requireRole('owner', 'marketing'), async (c)
 /* ------------------------------------------------------------------ */
 /**
  * Snapshots grouped by content UUID (migration 0009). content_uuid is filled
- * by trigger on every insert; the platformVideoId fallback only matters for a
- * row whose content record was missing at insert time.
+ * by trigger on insert. Orphans and platform mismatches remain unjoined.
  */
 function snapshotsByContentUuid(content: ContentRow[], performance: PerformanceRecord[]): Map<string, PerformanceRecord[]> {
-  const uuidByNative = new Map(content.filter((r) => r.id !== undefined).map((r) => [r.platformVideoId, r.id as string] as const));
-  const out = new Map<string, PerformanceRecord[]>();
-  for (const p of performance) {
-    const key = p.contentUuid ?? uuidByNative.get(p.contentId);
-    if (key === undefined) continue;
-    if (!out.has(key)) out.set(key, []);
-    out.get(key)?.push(p);
-  }
-  return out;
+  return brainHistory(content, performance);
 }
 
 function latestSnapshotByContentUuid(content: ContentRow[], performance: PerformanceRecord[]): Map<string, PerformanceRecord> {

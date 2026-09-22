@@ -33,6 +33,8 @@ export function Insights() {
     void load();
   }, []);
 
+  useEffect(()=>{if(data&&new URLSearchParams(window.location.search).get('filter')==='tags'){const section=document.getElementById('tag-proposals');section?.scrollIntoView({block:'start'});section?.focus({preventScroll:true});}},[data]);
+
   const pending = useMemo(() => (data?.proposals ?? []).filter((p) => p.status === 'suggested'), [data]);
   const decided = useMemo(() => (data?.proposals ?? []).filter((p) => p.status !== 'suggested'), [data]);
 
@@ -98,9 +100,9 @@ export function Insights() {
           {r.pairs.length > 0 ? (
             <div className="card">
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                Cross-platform pairs <span className="badge green">stronger evidence</span>
+                Cross-platform pairs <span className="badge green">paired observations</span>
               </div>
-              <div className="dim" style={{ fontSize: 12, marginBottom: 8 }}>Same video on two platforms — hook, format and idea source held constant, platform the only thing that varies.</div>
+              <div className="dim" style={{ fontSize: 12, marginBottom: 8 }}>Paired creative content across platforms. Audience, timing, distribution, ad exposure and metric definitions can still differ; this is not a controlled experiment.</div>
               {r.pairs.map((p, i) => (
                 <div key={i} style={{ marginBottom: 6 }}>
                   {p.sides.map((s) => `${s.platform} ${pct(s.engagementRatePct)}`).join(' vs ')} → <strong>{p.winner ?? 'no winner'}</strong>
@@ -133,12 +135,12 @@ export function Insights() {
                       return (
                         <div key={key} style={{ marginBottom: 8 }}>
                           <button className="btn ghost" onClick={() => setOpenClaim(open ? null : key)} style={{ padding: '2px 6px' }}>
-                            {c.direction === 'works' ? <span className="badge green">works</span> : c.direction === 'doesnt' ? <span className="badge red">doesn't</span> : <span className="badge">neutral</span>}{' '}
+                            {c.direction === 'works' ? <span className="badge green">higher engagement</span> : c.direction === 'doesnt' ? <span className="badge red">lower engagement</span> : <span className="badge">neutral</span>}{' '}
                             {DIM_LABEL[c.dimension]}: <strong>{c.value}</strong> — {pct(c.medianEngagementPct)} vs {pct(c.platformMedianPct)} ({c.relativeDelta >= 0 ? '+' : ''}{Math.round(c.relativeDelta * 100)}%, n={c.n}, pooled)
                           </button>
                           {open ? (
                             <div className="dim" style={{ fontSize: 12, paddingLeft: 10 }}>
-                              Evidence: {c.n} videos · {c.evidence.adBoostedCount} boosted · {c.evidence.adUnknownCount} ad status unknown · pooled across unrelated videos (weaker than a pair)
+                              Evidence: {c.n} videos · {c.evidence.adBoostedCount} boosted · {c.evidence.adUnknownCount} ad status unknown · pooled across unrelated videos (observational, not causal)
                               <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                                 {c.evidence.videoIds.map((id) => (
                                   <li key={id}>{videoLabel(id)}</li>
@@ -160,7 +162,7 @@ export function Insights() {
             );
           })}
 
-          <div className="card">
+          <div className="card" id="tag-proposals" tabIndex={-1}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Hypothesis tag proposals <span className="badge amber">suggest-only</span></div>
             <div className="dim" style={{ fontSize: 12, marginBottom: 8 }}>
               Proposed from Eknoor's descriptions. Nothing is written to a video until you approve it here.
