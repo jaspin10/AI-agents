@@ -97,7 +97,8 @@ export function Metrics() {
   const byId = useMemo(() => new Map((data?.videos ?? []).map((v) => [v.id, v] as const)), [data]);
   const platforms = useMemo(() => ['all', ...new Set((data?.videos ?? []).map((v) => v.platform))], [data]);
   const visible = useMemo(() => {
-    const vids = data?.videos ?? [];
+    const target = new URLSearchParams(window.location.search).get('id');
+    const vids = (data?.videos ?? []).filter(v => !target || v.id === target);
     return vids.filter((v) => (platform === 'all' || v.platform === platform) && (!onlyTwins || v.twinIds.length > 0));
   }, [data, platform, onlyTwins]);
 
@@ -117,7 +118,7 @@ export function Metrics() {
           {chip('With twins only', onlyTwins, () => setOnlyTwins(!onlyTwins))}
         </div>
         <div className="dim" style={{ fontSize: 12 }}>
-          {visible.length} videos · computed {data.today}. Rates are from the latest snapshot; "n/a" = the platform does not report that metric.
+          {visible.length} videos · computed {data.today}. Rates are from the latest snapshot; "n/a" = unavailable under the existing X2 availability rule; legacy native definitions may be unverified.
           Velocity uses the nearest earlier snapshot when the exact day is missing (amber badge shows the real day).
         </div>
         <div className="dim" style={{ fontSize: 12, marginTop: 4 }}>

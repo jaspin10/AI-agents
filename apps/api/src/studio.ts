@@ -45,6 +45,11 @@ export function createStudioRouter(deps:StudioDependencies):Hono<StudioEnv> {
  app.get('/research',async c=>{
   const records=await deps.store.list('research');return c.json({records,topics:topicOpportunities(records),notice:'Latest 500 records; counts are distinct approved entries in this inbox, not all audience demand.'});
  });
+ app.get('/research/:id',async c=>{
+  const id=z.uuid().parse(c.req.param('id'));const record=await deps.store.get('research',id);
+  if(!record)return c.json({error:'research_not_found'},404);
+  return c.json({record});
+ });
  app.put('/research/:id',async c=>{
   const id=z.uuid().parse(c.req.param('id'));const {body,expectedVersion,requestId}=SaveEnvelope.parse(await c.req.json());
   const value=ResearchSchema.parse(body);const key=createHash('sha256').update(researchKey(value.text)).digest('hex');

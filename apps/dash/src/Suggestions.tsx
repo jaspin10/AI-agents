@@ -1,6 +1,4 @@
-import { ProductionBoard } from './ProductionBoard.js';
-import { BriefLab } from './BriefLab.js';
-import { AudienceResearch } from './AudienceResearch.js';
+import { BrainLink } from './brain-ui.js';
 import { useEffect, useState } from 'react';
 import { getJson, setSuggestionStatus, type SuggestionRow } from './api.js';
 
@@ -19,6 +17,8 @@ const STATUS_COLOR: Record<SuggestionRow['status'], string> = {
 export function Suggestions() {
   const [rows, setRows] = useState<SuggestionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limit,setLimit]=useState(30);
+  const selectedId=new URLSearchParams(window.location.search).get('id');
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,13 +45,11 @@ export function Suggestions() {
 
   return (
     <>
-      <div className="section-heading"><h2>Creative studio</h2><p className="dim">Research → brief → production. Open a tool to continue.</p></div>
-      <AudienceResearch />
-      <BriefLab suggestions={rows}/>
-      <ProductionBoard />
+      <div className="creative-path"><BrainLink to={{view:'audience'}}>01 / Audience evidence ↗</BrainLink><BrainLink to={{view:'briefs'}}>02 / Shape a brief ↗</BrainLink><BrainLink to={{view:'production'}}>03 / Production & review ↗</BrainLink></div>
       <div className="section-heading"><h2>Suggestions <span className="count-badge">{rows.length}</span></h2><p className="dim">Review the hook, rationale and evidence before taking action.</p></div>
-      {rows.length===0 && <div className="card empty-state"><strong>No suggestions yet</strong><p>You can still collect audience questions and prepare a brief above.</p></div>}
-      {rows.map((s) => (
+      {rows.length===0 && <div className="card empty-state"><strong>No suggestions yet</strong><p>You can still collect audience questions and prepare a brief in the Briefs view.</p></div>}
+      {selectedId&&!rows.some(s=>s.id===selectedId)&&<div className="card" role="status">This suggestion is unavailable. <BrainLink to={{view:'suggestions'}}>View all ideas</BrainLink></div>}
+      {rows.filter(s=>!selectedId||s.id===selectedId).slice(0,limit).map((s) => (
         <div className="card" key={s.id}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <strong>{s.payload.theme ?? '(no theme)'}</strong>
@@ -70,6 +68,7 @@ export function Suggestions() {
           <details><summary>Evidence · {s.payload.evidenceMode ?? 'historical inferred / unverified'}</summary><p>Content: {s.payload.evidenceContentIds?.join(', ') ?? 'not recorded'} · Insight run: {s.payload.insightRunId ?? 'none'}</p><pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(s.payload.evidenceSnapshot ?? {notice:'No recorded prompt evidence for this historical suggestion.'}, null, 2)}</pre></details>
           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <span style={{ fontSize: 12 }} className="dim">{new Date(s.createdAt).toLocaleString()}</span>
+            {['surfaced','posted'].includes(s.status)&&<BrainLink to={{view:'briefs',idea:s.id}} className="btn">Shape this idea into a brief ↗</BrainLink>}
             {s.status === 'surfaced' ? (
               <span style={{ display: 'flex', gap: 8 }}>
                 <button className="btn" disabled={busy === s.id} onClick={() => void flip(s.id, 'posted')}>
@@ -83,6 +82,7 @@ export function Suggestions() {
           </div>
         </div>
       ))}
+      {!selectedId&&rows.length>limit&&<button className="btn" onClick={()=>setLimit(n=>n+30)}>Show more ideas</button>}
     </>
   );
 }

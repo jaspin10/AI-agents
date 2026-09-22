@@ -57,7 +57,8 @@ function bounceToPortal(): never {
   throw new Error('Session expired — reopening from the portal.');
 }
 
-export async function getJson<T>(path: string): Promise<T> {
+const inflight = new Map<string, Promise<unknown>>();
+async function readJson<T>(path: string): Promise<T> {
   const response = await fetch(API_BASE + path);
   if (response.status === 401) bounceToPortal();
   if (response.status === 403) throw new Error('Your portal role cannot open this.');
@@ -78,7 +79,18 @@ export async function sendJson<T>(method: 'PUT' | 'POST', path: string, body: un
     const data = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(data?.error ?? `${path} → ${response.status}`);
   }
-  return (await response.json()) as T;
+  const result = (await response.json()) as T;
+  window.dispatchEvent(new Event('marketing:data-changed'));
+  return result;
+}
+
+/** Deduplicate concurrent reads without caching completed API responses. */
+export function getJson<T>(path: string): Promise<T> {
+  const existing = inflight.get(path);
+  if (existing) return existing as Promise<T>;
+  const request = readJson<T>(path).finally(() => { inflight.delete(path); });
+  inflight.set(path, request);
+  return request;
 }
 
 export function getMe(): Promise<Me> {

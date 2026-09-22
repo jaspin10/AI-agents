@@ -1,3 +1,4 @@
+import { brainHistory } from '@platform/shared';
 import { createReservedLlm } from '@platform/memory';
 /**
  * X6 — Agent correlation + the closed loop (docs/spec/x-series.md, X6).
@@ -79,23 +80,11 @@ export type InsightsOutput = z.infer<typeof OutputSchema>;
 /* ---------------- data shaping (same join rules as apps/api's X2 route) ---------------- */
 
 function snapshotsByContentUuid(content: ContentRow[], performance: PerformanceRecord[]): Map<string, Snapshot[]> {
-  const uuidByNative = new Map(content.filter((r) => r.id !== undefined).map((r) => [r.platformVideoId, r.id as string] as const));
-  const out = new Map<string, Snapshot[]>();
-  for (const p of performance) {
-    const key = p.contentUuid ?? uuidByNative.get(p.contentId);
-    if (key === undefined) continue;
-    if (!out.has(key)) out.set(key, []);
-    out.get(key)?.push({
-      capturedDate: p.capturedDate,
-      views: p.metrics.views,
-      likes: p.metrics.likes,
-      comments: p.metrics.comments,
-      shares: p.metrics.shares,
-      saves: p.metrics.saves,
-      followersAtCapture: p.metrics.followersAtCapture,
-    });
-  }
-  return out;
+  return new Map([...brainHistory(content, performance)].map(([id, rows]) => [id, rows.map(p => ({
+    capturedDate: p.capturedDate, views: p.metrics.views, likes: p.metrics.likes,
+    comments: p.metrics.comments, shares: p.metrics.shares, saves: p.metrics.saves,
+    followersAtCapture: p.metrics.followersAtCapture,
+  }))]));
 }
 
 /** Derived from data, not a platform list: shares count iff any snapshot on that platform ever reported a non-zero share. */

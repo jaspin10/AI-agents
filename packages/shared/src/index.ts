@@ -26,3 +26,6 @@ export * from './research.js';
 export * from './brief.js';
 
 export * from './production.js';
+export * from './brain-diagnosis.js';
+export * from './brain-model.js';
+export { ConfirmedBrainLineageSchema, BrainClaimSchema } from './brain-schemas.js';
