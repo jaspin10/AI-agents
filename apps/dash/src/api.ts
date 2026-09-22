@@ -76,8 +76,8 @@ export async function sendJson<T>(method: 'PUT' | 'POST', path: string, body: un
   if (response.status === 401) bounceToPortal();
   if (response.status === 403) throw new Error('Your portal role cannot do this.');
   if (!response.ok) {
-    const data = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? `${path} → ${response.status}`);
+    const data = (await response.json().catch(() => null)) as { error?: string; message?: string; requestId?: string } | null;
+    throw new Error((data?.message ?? data?.error ?? `${path} → ${response.status}`)+(data?.requestId?` Request ID: ${data.requestId}`:''));
   }
   const result = (await response.json()) as T;
   window.dispatchEvent(new Event('marketing:data-changed'));

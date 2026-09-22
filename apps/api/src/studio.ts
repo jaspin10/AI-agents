@@ -1,4 +1,5 @@
 import { createProductionRouter } from './production.js';
+import { briefFailure } from './brief-errors.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { bodyLimit } from 'hono/body-limit';
 import { Hono } from 'hono';
@@ -109,7 +110,12 @@ export function createStudioRouter(deps:StudioDependencies):Hono<StudioEnv> {
   const evidence=await briefEvidence(body),actor=c.get('auth')!.email;
   await deps.store.claimJob(e.requestId,id,e.stage,actor);
   try {
-   const generated=await deps.generate(e.stage,body,evidence,actor,e.requestId);
+   const generated=await deps.generate(e.stage,body,evidence,actor,e.requestId).catch(error=>{
+    const failure=briefFailure(error);
+    // Never log raw provider exceptions, prompts, tokens or user text.
+    console.error(JSON.stringify({event:'brief_generation_failed',requestId:e.requestId,stage:e.stage,code:failure.code}));
+    throw Object.assign(new Error(failure.code),{briefFailure:failure});
+   });
    if((await deps.store.jobs(id)).find(j=>j.id===e.requestId)?.status!=='running')throw new Error('generation_cancelled');
    const next:BriefBody={...body,approval:null,generation:{model:generated.model,promptVersion:generated.promptVersion,at:new Date().toISOString(),stage:e.stage,evidence}};
    if(e.stage==='hooks'){next.hooks=generated.hooks;next.hookChecks=generated.checks;next.selectedHookId=null;next.draft=null;next.draftChecks=null;}
@@ -117,7 +123,11 @@ export function createStudioRouter(deps:StudioDependencies):Hono<StudioEnv> {
    next.revisionReason=`AI ${e.stage}; human review required`;
    const saved=await deps.store.save({id,kind:'brief',entityKey:id,expectedVersion:old.version,requestId:randomUUID(),body:BriefBodySchema.parse(next),actor});
    await deps.store.finishJob(e.requestId,'complete');return c.json(saved);
-  } catch(error){await deps.store.finishJob(e.requestId,'failed');throw error;}
+  } catch(error){
+   try{await deps.store.finishJob(e.requestId,'failed');}catch{console.error(JSON.stringify({event:'brief_job_cleanup_failed',requestId:e.requestId}));}
+   if(error instanceof Error&&'briefFailure' in error){const failure=error.briefFailure as ReturnType<typeof briefFailure>;return c.json({error:failure.code,message:failure.message,requestId:e.requestId},503);}
+   throw error;
+  }
  });
  app.post('/briefs/:id/cancel-job',async c=>{
   if(c.get('auth')!.role!=='owner')return c.json({error:'owner_approval_required'},403);
