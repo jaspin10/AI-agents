@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { brainHistory, diagnoseVideos, type BrainAnalysis } from './brain-diagnosis.js';
+import { brainHistory, brainMetricValue, diagnoseVideos, type BrainAnalysis } from './brain-diagnosis.js';
 import { brainAttention, brainIdeaLifecycle, brainHref, allowedBrainView, BRAIN_VIEWS, BRAIN_AGENTS, type BrainOverview } from './brain-model.js';
 import type { ContentRow } from './schemas/content.js';
 import type { PerformanceRecord } from './schemas/performance.js';
@@ -65,6 +65,7 @@ test('different native definitions, legacy definitions and unavailable fields ne
   f.performance[1]!.provenance!.views!.definitionVersion='v1';assert.equal(target(f).comparison.n,7);
   for(const row of f.performance)row.provenance!.views!.availability='error';
   assert.equal(target(f).outcome,'insufficient');assert.match(target(f).comparison.reason,/availability/);
+  assert.equal(target(f).rates!.engagementRatePct,null);assert.equal(brainMetricValue(target(f),'views'),null);
 });
 test('prefer a mature qualifying window; latest totals are separate and approximate history cannot substitute',()=>{
   const f=fixture();f.performance.push(...f.performance.map(p=>({...p,id:randomUUID(),capturedDate:'2026-10-01',capturedAt:'2026-10-01T12:00:00Z',metrics:{...p.metrics,views:5000}})));
@@ -86,6 +87,11 @@ test('deterministic input order, duplicate capture choice and bounded evidence p
   assert.equal(target(f).comparison.n,69);assert.equal(target(f).comparison.peers.length,60);
   const p=f.performance[0]!;f.performance.push({...p,id:randomUUID(),capturedAt:'2026-09-08T23:00:00Z',metrics:{...p.metrics,views:2000}});
   assert.equal(target(f).snapshotCount,1);assert.equal(target(f).metrics!.views,2000);
+});
+test('overview projections and a focused detail retain the same cohort and outcome',()=>{
+  const f=fixture(70),full=target(f),compact=diagnoseVideos({...f,peerLimit:0}).find(v=>v.id===full.id)!;
+  assert.equal(compact.comparison.peers.length,0);assert.equal(compact.comparison.n,full.comparison.n);assert.equal(compact.comparison.medianRate,full.comparison.medianRate);assert.equal(compact.outcome,full.outcome);
+  assert.deepEqual(diagnoseVideos({...f,focusId:full.id}),[full]);
 });
 test('hypotheses need recorded inputs and never invent retention curves or causal confidence',()=>{
   const f=fixture();assert.equal(target(f).possibleCauses.length,0);

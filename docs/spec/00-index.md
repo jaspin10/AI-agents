@@ -5,6 +5,7 @@ Status: separate, working project. The analyst pipeline, suggestions agent, Slac
 **How to use:** read whichever file below covers the task, not the whole directory. CLAUDE.md at the repo root has standing code rules. Working branch is `milestone-2`, not `main` (main is an older skeleton).
 
 ## Files
+- `marketing-brain.md` — connected marketing workspaces, current-code audit, contextual guides, evidence-aware video diagnosis, exact X14 journeys, agent handoffs, limitations and verification. Implemented on a review branch; not deployed.
 - `x-series.md` — **the plan.** X0 access → X1 content analysis input → X2 derived metrics → X3 KPIs → X4 TikTok Business API → X5 ad analytics → X6 agent correlation → X7 sales → X8 hardening → X9 Instagram. Plus Track B, the non-code blockers. Read this first for anything forward-looking.
 - `portal-integration.md` — the locked "link, don't merge" decision and the auth design X0 implements
 - `01-architecture.md` — what the platform is, stack, repo structure, deployment

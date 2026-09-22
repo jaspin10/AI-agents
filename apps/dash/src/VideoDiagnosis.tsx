@@ -1,6 +1,13 @@
-import { BRAIN_OUTCOME_LABELS, type BrainOverview, type BrainVideo } from '@platform/shared/browser';
-import { BrainLink, EvidenceBadge, number, percent, date } from './brain-ui.js';
+import { useEffect, useState } from 'react';
+import { BRAIN_OUTCOME_LABELS, brainMetricValue, type BrainOverview, type BrainVideo } from '@platform/shared/browser';
+import { BrainLink, BrainLoading, EvidenceBadge, number, percent, date } from './brain-ui.js';
+import { getJson } from './api.js';
 import { ContentJourney } from './ContentJourney.js';
+export function VideoDetails({id,data}:{id:string;data:BrainOverview}) {
+  const [video,setVideo]=useState<BrainVideo|null>(null),[error,setError]=useState<string|null>(null),[attempt,setAttempt]=useState(0);
+  useEffect(()=>{let active=true;setVideo(null);setError(null);getJson<BrainVideo>('/api/brain/video/'+id).then(v=>{if(active)setVideo(v);}).catch(e=>{if(active)setError(String(e));});return()=>{active=false;};},[id,attempt]);
+  return video?<VideoDiagnosis video={video} data={data}/>:<BrainLoading error={error} retry={()=>setAttempt(n=>n+1)}/>;
+}
 export function VideoDiagnosis({video:v,data}:{video:BrainVideo;data:BrainOverview}) {
   const c=v.comparison,patterns=(data.learnings??[]).filter(p=>p.platform===v.platform&&p.evidence.videoIds.includes(v.id));
   const hasComparison=c.relativeDelta!==null;
@@ -10,7 +17,7 @@ export function VideoDiagnosis({video:v,data}:{video:BrainVideo;data:BrainOvervi
       <div className="diagnosis-actions"><BrainLink className="btn" to={{view:'analysis',id:v.id}}>Review content notes</BrainLink><BrainLink className="btn" to={{view:'metrics',id:v.id}}>Inspect snapshots & twins</BrainLink><BrainLink className="btn primary" to={{view:'briefs',example:v.id}}>Plan the next test ↗</BrainLink></div>
     </header>
     <section className="card"><div className="panel-heading"><div><span className="eyebrow">01 / WHAT HAPPENED?</span><h3>The recorded outcome</h3></div><EvidenceBadge level="observed"/></div>
-      <div className="metric-strip">{[['Views',number(v.metrics?.views)],['Engagement',percent(v.rates?.engagementRatePct)],['Comment rate',percent(v.rates?.commentRatePct)],['Share rate',percent(v.rates?.shareRatePct)],['Average watch',v.metrics?.avgWatchTimeSeconds==null?'n/a':v.metrics.avgWatchTimeSeconds.toFixed(1)+'s']].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <div className="metric-strip">{[['Views',number(brainMetricValue(v,'views'))],['Engagement',percent(v.rates?.engagementRatePct)],['Comment rate',percent(v.rates?.commentRatePct)],['Share rate',percent(v.rates?.shareRatePct)],['Average watch',brainMetricValue(v,'avgWatchTimeSeconds')==null?'n/a':brainMetricValue(v,'avgWatchTimeSeconds')!.toFixed(1)+'s']].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className="hint">Latest snapshot {date(v.capturedDate)} · {v.snapshotCount} saved observations. Recorded values are not a guarantee of verified native definitions.{v.stale?' This snapshot needs a freshness check.':''}</p>
       <details><summary>Metric provenance and availability</summary><div className="table-scroll" role="region" aria-label="Metric provenance" tabIndex={0}><table><thead><tr><th>Metric</th><th>Availability</th><th>Source / definition</th><th>Denominator</th></tr></thead><tbody>{['views','likes','comments','shares','saves','avgWatchTimeSeconds','retentionPct'].map(k=><tr key={k}><td>{k}</td><td>{v.provenance?.[k]?.availability??'Legacy · unverified'}</td><td>{v.provenance?.[k]?.source??'Native endpoint not recorded'} · {v.provenance?.[k]?.definitionVersion??'unknown'}</td><td>{v.provenance?.[k]?.denominator??'Not recorded'}</td></tr>)}</tbody></table></div></details>
     </section>

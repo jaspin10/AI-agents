@@ -29,6 +29,11 @@ export const BRAIN_OUTCOME_LABELS: Record<BrainOutcome, string> = {
   above: 'Above baseline', below: 'Below baseline', typical: 'Near baseline',
   insufficient: 'More data needed', unmeasured: 'No snapshot',
 };
+/** Preserve raw snapshots for provenance, but never display an explicitly unavailable counter as zero. */
+export function brainMetricValue(v: Pick<BrainVideo,'metrics'|'provenance'>, key: keyof VideoMetrics): number | null {
+  const availability=v.provenance?.[key]?.availability;
+  return availability && availability!=='observed' ? null : v.metrics?.[key]??null;
+}
 
 /** Canonical UUID + platform only: native IDs are never evidence joins. */
 export function brainHistory(content: readonly ContentRow[], performance: readonly PerformanceRecord[]) {
@@ -64,6 +69,7 @@ function definition(p: PerformanceRecord, sharesReported: boolean): string {
 export function diagnoseVideos(input: {
   content: readonly ContentRow[]; performance: readonly PerformanceRecord[]; analyses: readonly BrainAnalysis[];
   memories?: ReadonlyMap<string, CreativeMemory>; today: string;
+  focusId?: string; peerLimit?: number;
 }): BrainVideo[] {
   const { content, performance, analyses, today } = input;
   const history = brainHistory(content, performance);
@@ -83,7 +89,7 @@ export function diagnoseVideos(input: {
   for (const c of content) if (c.id) {
     atDay.set(c.id, new Map((history.get(c.id) ?? []).map(p => [ageDays(c.postedAt, p.capturedDate), p])));
   }
-  return content.filter((c): c is ContentRow & { id: string } => !!c.id).map(c => {
+  return content.filter((c): c is ContentRow & { id: string } => !!c.id && (!input.focusId || c.id === input.focusId)).map(c => {
     const a = analysisById.get(c.id), cm = input.memories?.get(c.id);
     const snapshots = history.get(c.id) ?? [], latest = snapshots.at(-1);
     const format = a?.format ?? c.format;
@@ -92,7 +98,7 @@ export function diagnoseVideos(input: {
       'Engagement uses the existing X2 calculation and availability heuristic, including available saves.',
       'Calendar-day captures are not exact elapsed 24-hour windows.',
     ];
-    if (!latest?.provenance || Object.keys(latest.provenance).length === 0) cautions.push('Native metric definitions were not recorded for these legacy snapshots.');
+    if (['views','likes','comments'].some(k=>!latest?.provenance?.[k])) cautions.push('Some native metric definitions were not recorded for these legacy snapshots.');
     if (exposure(a) === 'unknown') cautions.push('Ad exposure is unknown; this is not an organic-only comparison.');
     if (!cm?.durationSeconds) cautions.push('Duration is unrecorded; peers with unknown duration may differ in length.');
     const stale = !!latest && ageDays(latest.capturedDate, today) > 2;
@@ -126,7 +132,7 @@ export function diagnoseVideos(input: {
       peers.sort((x, y) => x.id.localeCompare(y.id));
       const enough = peers.length >= MIN_GROUP_SIZE, baseline = enough ? median(peers.map(p => p.rate)) : null;
       const delta = baseline !== null && baseline > 0 ? (targetRate - baseline) / baseline : null;
-      const candidate: BrainComparison = { day, capturedDate: target.capturedDate, targetRate, medianRate: baseline, relativeDelta: delta, n: peers.length, peers: peers.slice(0, 60),
+      const candidate: BrainComparison = { day, capturedDate: target.capturedDate, targetRate, medianRate: baseline, relativeDelta: delta, n: peers.length, peers: peers.slice(0, input.peerLimit ?? 60),
         scope: comparison.scope,
         reason: !enough ? 'Need at least 8 other comparable scored videos; found ' + peers.length + '.' : baseline === 0 ? 'The peer median is zero; a relative comparison is not meaningful.' : 'Day ' + day + ' engagement against ' + peers.length + ' other comparable videos. Eight is a reporting floor, not proof.',
       };
@@ -158,9 +164,16 @@ export function diagnoseVideos(input: {
       : outcome === 'below'
       ? 'Keep the topic and lesson; test one documented element (' + (possibleCauses[0]?.category.toLowerCase() ?? 'format') + '). Compare engagement at the same recorded age. Treat the explanation as a hypothesis.'
       : 'Collect missing content notes and comparable snapshots before declaring a winner. A new brief can be labelled creative exploration.';
+    const displayedRates=latest?{...rate(latest)}:null;
+    if(latest&&displayedRates) {
+      const available=(key:string)=>!latest.provenance?.[key]||latest.provenance[key]!.availability==='observed';
+      if(!usableMetrics(latest,shares.has(c.platform)))displayedRates.engagementRatePct=null;
+      if(!available('views')||!available('comments'))displayedRates.commentRatePct=null;
+      if(!available('views')||!available('shares'))displayedRates.shareRatePct=null;
+    }
     return { id: c.id, title: c.title, platform: c.platform, postedAt: c.postedAt, platformVideoId: c.platformVideoId, hypothesis: c.hypothesis,
       format, exposure: exposure(a), analysed: !!a, snapshotCount: snapshots.length, capturedDate: latest?.capturedDate ?? null,
-      stale, metrics: latest?.metrics ?? null, rates: latest ? rate(latest) : null, provenance: latest?.provenance,
+      stale, metrics: latest?.metrics ?? null, rates: displayedRates, provenance: latest?.provenance,
       outcome, comparison, cautions, possibleCauses, unknowns, nextTest };
   }).sort((a, b) => b.postedAt.localeCompare(a.postedAt) || a.id.localeCompare(b.id));
 }

@@ -29,7 +29,8 @@ export function createBrainRouter(deps: BrainDependencies): Hono<StudioEnv> {
     if (!['owner','marketing'].includes(auth.role)) return c.json({ error: 'forbidden' }, 403);
     await next();
   });
-  app.onError((e, c) => c.json({ error: e instanceof z.ZodError ? 'invalid_id' : 'brain_unavailable' }, e instanceof z.ZodError ? 400 : 503));
+  const requestId=(value:string)=>{const p=z.uuid().safeParse(value);if(!p.success)throw new Error('invalid_id');return p.data;};
+  app.onError((e, c) => c.json({ error: e.message==='invalid_id' ? 'invalid_id' : 'brain_unavailable' }, e.message==='invalid_id' ? 400 : 503));
 
   app.get('/', async c => {
     const sourceErrors: string[] = [];
@@ -90,12 +91,12 @@ export function createBrainRouter(deps: BrainDependencies): Hono<StudioEnv> {
     }
     const payload: BrainOverview = {
       generatedAt, sourceErrors: [...new Set(sourceErrors)].sort(), studioLimit: 500,
-      videos: content && performance && analyses && memories && !sourceErrors.includes('invalid creative memory record') ? diagnoseVideos({ content, performance, analyses, today: generatedAt.slice(0,10), memories: new Map(parsedMemories.map(m => [m.record.id, m.body])) }) : null,
+      videos: content && performance && analyses && memories && !sourceErrors.includes('invalid creative memory record') ? diagnoseVideos({ content, performance, analyses, peerLimit:0, today: generatedAt.slice(0,10), memories: new Map(parsedMemories.map(m => [m.record.id, m.body])) }) : null,
       suggestions: suggestions?.flatMap(s => s.payload.kind !== 'next_video' ? [] : [{ id: s.id, theme: s.payload.theme, hypothesis: s.hypothesis, status: s.status, createdAt: s.createdAt,
         evidenceIds: s.payload.evidenceContentIds ?? [], evidenceMode: s.payload.evidenceMode ?? 'historical unverified' }]) ?? null,
       briefs: briefs ? parsedBriefs.map(({record:r,body:b}) => ({ id:r.id,version:r.version,topic:b.input.topic,platform:b.input.platform,suggestionId:b.input.suggestionId,exampleIds:b.input.exampleIds,approved:b.approval?.version===r.version,readyForReview:!!b.draft&&checksPassed(b.draftChecks),draft:!!b.draft,updatedAt:r.updatedAt })) : null,
       production: production ? parsedProduction.map(({record:r,body:b}) => ({ id:r.id,briefId:b.briefId,briefVersion:b.briefVersion,topic:parsedBriefs.find(x=>x.record.id===b.briefId)?.body.input.topic??'Brief '+b.briefId.slice(0,8),stage:b.stage,owner:b.owner,dueDate:b.dueDate,blockers:b.blockers,openRequests:b.requests.filter(q=>q.status==='open').length,updatedAt:r.updatedAt })) : null,
-      memories: memories ? parsedMemories.map(({record:r,body:b}) => ({id:r.id,version:r.version,title:content?.find(v=>v.id===r.id)?.title??'Untitled video',topic:b.topic,reviewed:b.annotations.filter(a=>a.review==='reviewed').length,draft:b.annotations.filter(a=>a.review==='draft').length,updatedAt:r.updatedAt,assetVersion:b.asset?.version??null})) : null,
+      memories: memories ? parsedMemories.sort((a,b)=>b.record.updatedAt.localeCompare(a.record.updatedAt)).map(({record:r,body:b}) => ({id:r.id,version:r.version,title:content?.find(v=>v.id===r.id)?.title??'Untitled video',topic:b.topic,reviewed:b.annotations.filter(a=>a.review==='reviewed').length,draft:b.annotations.filter(a=>a.review==='draft').length,updatedAt:r.updatedAt,assetVersion:b.asset?.version??null})) : null,
       topics: research ? topicOpportunities(research) : null,
       researchCount: research?.filter(r=>r.body['archived']!==true).length ?? null,
       learnings: sourceErrors.includes('insights') ? null : learnings, lineage: enrichedLineage,
@@ -105,8 +106,17 @@ export function createBrainRouter(deps: BrainDependencies): Hono<StudioEnv> {
     return c.json(payload);
   });
 
+  app.get('/video/:id', async c => {
+    const id=requestId(c.req.param('id'));
+    const content=await deps.memory.content.all();
+    if(!content.some(v=>v.id===id))return c.json({error:'content_not_found'},404);
+    const [performance,analyses,memories]=await Promise.all([deps.memory.performance.all(),deps.memory.contentAnalysis.all(),deps.store.allMemories()]);
+    // Only the selected result carries peer citations. Classification still uses the full cohort.
+    return c.json(diagnoseVideos({content,performance,analyses,focusId:id,peerLimit:60,today:(deps.now?.()??new Date().toISOString()).slice(0,10),memories:new Map(memories.map(r=>[r.id,CreativeMemorySchema.parse(r.body)]))})[0]);
+  });
+
   app.get('/journey/:id', async c => {
-    const id = z.uuid().parse(c.req.param('id'));
+    const id = requestId(c.req.param('id'));
     const content = (await deps.memory.content.all()).find(v=>v.id===id);
     if (!content) return c.json({error:'content_not_found'},404);
     const links = await deps.lineage.forContent(id);

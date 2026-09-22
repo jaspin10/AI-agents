@@ -24,7 +24,7 @@ function fixture(role:string|null='marketing') {
   return {host,deps,contentId,ideaId,reads:()=>reads};
 }
 test('all Brain routes deny anonymous and unrelated roles before any storage access',async()=>{
-  for(const [role,status] of [[null,401],['student',403],['salesman',403]] as const){const f=fixture(role);for(const path of ['/api/brain',`/api/brain/journey/${f.contentId}`])assert.equal((await f.host.request(path)).status,status);assert.equal(f.reads(),0);}
+  for(const [role,status] of [[null,401],['student',403],['salesman',403]] as const){const f=fixture(role);for(const path of ['/api/brain',`/api/brain/journey/${f.contentId}`,`/api/brain/video/${f.contentId}`])assert.equal((await f.host.request(path)).status,status);assert.equal(f.reads(),0);}
 });
 test('owner and marketing receive an allowlisted read-only overview with honest unmeasured videos',async()=>{
   for(const role of ['owner','marketing']){const f=fixture(role),response=await f.host.request('/api/brain');assert.equal(response.status,200);const body=await response.json() as BrainOverview;
@@ -65,4 +65,9 @@ test('overview/journey expose no mutation or generation endpoint',async()=>{
 test('invalid stored patterns cannot acquire a supported-pattern badge',async()=>{
   const f=fixture();f.deps.memory.insightRuns.latest=async()=>({id:randomUUID(),createdAt:'2026-09-01',status:'numbers_only',report:{perPlatform:[{claims:[{n:2,platform:'tiktok'}]}]}} as never);
   const body=await (await f.host.request('/api/brain')).json() as BrainOverview;assert.deepEqual(body.learnings,[]);assert.ok(body.sourceErrors.includes('invalid stored pattern'));
+});
+test('focused video diagnosis checks IDs and fails closed when its evidence cannot be read',async()=>{
+  const f=fixture();assert.equal((await f.host.request('/api/brain/video/invalid')).status,400);assert.equal((await f.host.request(`/api/brain/video/${randomUUID()}`)).status,404);
+  const good=await f.host.request(`/api/brain/video/${f.contentId}`);assert.equal(good.status,200);assert.equal((await good.json()).id,f.contentId);
+  f.deps.memory.performance.all=async()=>{throw new Error('private-connection');};const failed=await f.host.request(`/api/brain/video/${f.contentId}`);assert.equal(failed.status,503);assert.deepEqual(await failed.json(),{error:'brain_unavailable'});
 });
