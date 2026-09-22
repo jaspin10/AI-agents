@@ -258,7 +258,9 @@ app.get('/auth/handoff', async (c) => {
     }
     await issueSession(c, { sub: parsed.data.sub, email: parsed.data.email, role: parsed.data.role });
     logger.info(`handoff ok: ${parsed.data.role} ${parsed.data.email}`);
-    return c.redirect(`${BASE_PATH}/`, 302);
+    // Land on the dashboard's explicit route: the proxy can serve the portal
+    // launcher at /analytics/ even after a successful cookie exchange.
+    return c.redirect(`${BASE_PATH}/brain`, 302);
   } catch (error) {
     // error.name only (JwtTokenExpired, JwtTokenSignatureMismatched, …): hono's
     // message embeds the token itself, and tokens must not land in Railway logs.

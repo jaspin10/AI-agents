@@ -221,3 +221,17 @@ Optional modes: `--marketing`, `--empty`, `--partial`; `--check` runs the nonvis
 Dedicated review branch: `marketing-brain/astra-overhaul`; PR base: `milestone-2`. The complete verified source is saved in GitHub. No merge, deployment, paid model call or production-data mutation is part of this work.
 
 The remaining gate for this PR is actual browser/live-session QA, explicitly blocked above. Future product work remains the existing formal experiment register and promoted/contradicted/retired playbook model; precise retention and sales attribution require real source capabilities and separate decisions. The current implementation does not claim those future features exist.
+
+## Analytics handoff follow-up — 2026-09-22
+
+Live owner handoffs were accepted by Railway at 22:24 UTC, but the following
+`/analytics/` request served the portal HTML. A public diagnostic reproduced
+that response with `X-Vercel-Cache: HIT`; `/analytics/brain` reached Railway
+and enforced session authentication. Successful handoffs now redirect directly
+to `/analytics/brain`, avoiding the ambiguous cached launcher URL. Session
+signing, single-use tokens, cookie settings and role gates are unchanged.
+Authenticated browser verification remains required after deployment.
+
+Validation: API TypeScript build passed. A local signed handoff verified the
+Brain redirect, no-store header, scoped httpOnly cookie, authenticated API
+access and single-use replay rejection. No production credentials were used.
