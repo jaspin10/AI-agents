@@ -235,3 +235,27 @@ Authenticated browser verification remains required after deployment.
 Validation: API TypeScript build passed. A local signed handoff verified the
 Brain redirect, no-store header, scoped httpOnly cookie, authenticated API
 access and single-use replay rejection. No production credentials were used.
+
+## Brief-generation diagnostics — 2026-09-22
+
+A reported `studio_unavailable` during hook generation exposed two confirmed
+code defects: all thrown generation failures were flattened to an opaque 503,
+and completed hooks with failed/stale checks disappeared from the interface.
+Existing runtime logs did not identify the particular underlying provider,
+budget or output failure in the screenshot; do not claim that cause is known.
+
+Generation failures now return an allowlisted explanation and request ID,
+distinguishing configuration, budget authorization, accounting, missing brand
+rules, provider access/rate limits, timeouts and invalid generated output.
+Server diagnostics contain only stage, request ID and safe code, never raw
+provider responses or user text. Cleanup failure no longer masks the initial
+generation error. Storage failures retain their existing behavior.
+
+The Brief Lab refreshes job status after a failed generation without replacing
+unsaved form edits. Unapproved hook candidates remain visible for inspection,
+with failed checks and reasons; selection remains blocked until every required
+check passes. Saving edits still resets review. No automatic paid retry, budget
+increase, approval bypass, migration or production-data edit is introduced.
+
+The particular live generation failure needs a subsequent attempt with the
+new diagnostics before its underlying service cause can be confirmed.
