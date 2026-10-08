@@ -72,7 +72,8 @@ Configuration done by Jas (the code that uses it is described in the next sectio
   Guardian's own spend. Never set these through the Railway MCP.
 - **GitHub token:** fine-grained personal access token `guardian-repair`, repository access
   limited to `jaspin10/french-with-jas-portal`, permissions Contents RW, Pull requests RW,
-  Metadata R. **Expires 2027-10-07 — renew before then.**
+  Metadata R, **plus Commit statuses R (needed by the build gate, Jas to add 2026-10-08)**.
+  **Expires 2027-10-07 — renew before then.**
 - **WhatsApp notice template:** `portal_notice`, English, WABA `2039209266746314`. Meta refused
   to accept it as Utility (it kept warning the template would be rejected), so it was submitted
   as **Marketing** on 2026-10-08. Body: "French With Jas system notice for your staff account:
@@ -106,6 +107,12 @@ incident: seven answers → `write_investigation`; in `auto` mode a second call 
 search/replace edits (only on files it read, under `src/`, `api/`, `supabase/functions/`),
 `classify.ts` decides small / big / blocked, then branch → PR → squash-merge (small) or PR + Approve
 (big). Blocked = never a PR, Jas is told in the Inbox.
+
+**Build gate (Jas 2026-10-08, `gate.ts`, unit-tested):** no Guardian PR is merged — small or
+approved-big — until Vercel's preview build for the PR's head commit reports `success` (GitHub
+commit status, context `Vercel`). Pending → wait for the next tick. Failed build, or no passing
+build within 30 min, or statuses unreadable → PR closed, repair `failed`, Jas told (Inbox +
+WhatsApp). Fails closed. Needs "Commit statuses: Read" on the `guardian-repair` token.
 
 **Classifier** (`classify.ts`, unit-tested): Jas's 2026-10-08 list by path and changed text, erring
 towards big. Hard wall (blocked): anything `whatsapp`, `whatsapp_people`/`whatsapp_messages`,
@@ -178,7 +185,8 @@ Replaces the earlier LOW/MEDIUM/HIGH split and the v1 rule "nothing auto-merges 
 auto-deploys at any risk level".
 
 - **Repair inputs:** Guardian `TRIGGERED` incidents AND Harman's WhatsApp error screenshots.
-- **Small error → auto-merge** to portal `main`. No checks, no approval.
+- **Small error → auto-merge** to portal `main`, no approval, **but only after Vercel's preview
+  build of the fix passes** (build gate, Jas 2026-10-08 — replaces "no checks").
 - **Big error → PR waits for an Approve button** in the portal's owner Error Inbox. See "What
   counts as big" below.
 - **Auto-revert:** see "Auto-revert rule" below.
@@ -217,7 +225,7 @@ After each merge, watch for **2 hours**. Revert the merge commit if EITHER:
 
 Jas and Harman get a WhatsApp and an Error Inbox notice on every revert.
 
-## Verifier — NOT BUILT
+## Verifier — PARTLY BUILT (build gate 2026-10-08; the rest not built)
 
 Independently re-runs: original reproduction, regression test, relevant existing tests,
 typecheck, lint, production build, and (once Robot Student exists) critical workflows. Never

@@ -6,6 +6,7 @@ import { BudgetExhaustedError, type GuardianLlm } from './llm.js';
 import type { Incident, Portal, Repair } from './portal.js';
 import { InvestigationSchema, PROMPT_VERSION, RepairPlanSchema, investigationSystem, investigationUser, repairSystem, repairUser, type Investigation } from './prompts.js';
 import { decideWatch } from './revert.js';
+import { decideMergeGate } from './gate.js';
 import { extractJson } from './untrusted.js';
 import type { GuardianMode } from './config.js';
 
@@ -64,7 +65,7 @@ export async function runTick(deps: WorkflowDeps): Promise<TickResult> {
   if (deps.mode === 'auto') {
     await step(deps, result, 'merge approved', async () => {
       for (const repair of await deps.portal.listRepairs(['approved'])) {
-        await mergeRepair(deps, repair, 'approved by Jas');
+        await mergeRepair(deps, repair, repair.size === 'small' ? 'small fix, merged automatically after the Vercel build passed' : 'approved by Jas, Vercel build passed');
         result.approvedMerged += 1;
       }
     });
@@ -270,7 +271,8 @@ async function openRepairPr(
   }
 
   const repair = await portal.createRepair({ incident_id: incident.id, size: 'small', big_reasons: [], summary, branch, pr_number: pr.number, pr_url: pr.url, status: 'approved' });
-  await mergeRepair(deps, repair, 'small fix, merged automatically');
+  // Usually returns at once: the Vercel build has only just started. The next tick merges it.
+  await mergeRepair(deps, repair, 'small fix, merged automatically after the Vercel build passed');
 }
 
 async function mergeRepair(deps: WorkflowDeps, repair: Repair, why: string): Promise<void> {
@@ -290,6 +292,23 @@ async function mergeRepair(deps: WorkflowDeps, repair: Repair, why: string): Pro
       await portal.updateStatus(repair.incident_id, 'DIAGNOSED', 'Repair PR was closed on GitHub; not merged.');
       return;
     } else {
+      // Build gate (2026-10-08): merge only after Vercel's preview build passed.
+      let statuses: Array<{ context: string; state: string }>;
+      try {
+        statuses = await github.commitStatuses(state.headSha);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`could not read the Vercel build result (the GitHub token needs "Commit statuses: Read"): ${message.slice(0, 120)}`);
+      }
+      const gate = decideMergeGate(statuses, deps.now() - Date.parse(state.createdAt));
+      if (gate.action === 'wait') return; // stays 'approved'; the next tick checks again
+      if (gate.action === 'fail') {
+        await github.closePr(repair.pr_number);
+        await portal.updateRepair(repair.id, { status: 'failed', error: `not merged: ${gate.reason}` });
+        await portal.updateStatus(repair.incident_id, 'DIAGNOSED', `Fix not published: ${gate.reason}. The PR was closed.`);
+        await portal.notify('guardian_build_failed', repair.id, noticeText(`a fix was NOT published because ${gate.reason} (${repair.summary}). Nothing changed on the portal`), 'owner', true);
+        return;
+      }
       sha = await github.mergePr(repair.pr_number, `guardian: ${repair.summary}`.slice(0, 120));
     }
   } catch (error) {
