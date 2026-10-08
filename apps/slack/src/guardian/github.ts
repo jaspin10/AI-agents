@@ -117,9 +117,15 @@ export class GitHub {
     await this.request('PATCH', `/pulls/${number}`, { state: 'closed' });
   }
 
-  async prState(number: number): Promise<{ state: string; merged: boolean; mergeSha: string | null }> {
-    const out = (await this.request('GET', `/pulls/${number}`)) as { state: string; merged: boolean; merge_commit_sha: string | null };
-    return { state: out.state, merged: out.merged, mergeSha: out.merge_commit_sha };
+  async prState(number: number): Promise<{ state: string; merged: boolean; mergeSha: string | null; headSha: string; createdAt: string }> {
+    const out = (await this.request('GET', `/pulls/${number}`)) as { state: string; merged: boolean; merge_commit_sha: string | null; head: { sha: string }; created_at: string };
+    return { state: out.state, merged: out.merged, mergeSha: out.merge_commit_sha, headSha: out.head.sha, createdAt: out.created_at };
+  }
+
+  /** Commit statuses (Vercel posts its preview build here). Needs the token's "Commit statuses: Read". */
+  async commitStatuses(sha: string): Promise<Array<{ context: string; state: string }>> {
+    const out = (await this.request('GET', `/commits/${sha}/status`)) as { statuses?: Array<{ context: string; state: string }> };
+    return (out.statuses ?? []).map((s) => ({ context: s.context, state: s.state }));
   }
 
   /** Squash-merge; returns the merge commit sha. */
