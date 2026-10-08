@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { ANALYST_AGENT_NAME, analystAgent, type AnalystOutput } from '@platform/agent-analyst';
+import { startGuardianLoop } from './guardian/index.js';
 import { createLogStore, createMemoryClient } from '@platform/memory';
 import { Orchestrator } from '@platform/orchestrator';
 import { createLogger, type NextVideoSuggestion } from '@platform/shared';
@@ -230,3 +231,7 @@ app.get('/health', (c) => c.text('ok'));
 
 const port = Number(process.env['PORT'] ?? 3000);
 serve({ fetch: app.fetch, port }, () => logger.info(`slack app listening on :${port}`));
+
+// Portal Guardian (docs/spec/guardian.md) runs in this service because its Railway
+// variables live here. Off unless its three secrets are set; never throws.
+startGuardianLoop(orchestrator, createLogger('guardian'));

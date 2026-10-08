@@ -7,7 +7,8 @@
     "scripts": {
       "build": "tsc -p tsconfig.json",
       "clean": "rm -rf dist",
-      "start": "node dist/index.js"
+      "start": "node dist/index.js",
+      "test": "node --test dist/guardian/*.test.js"
     },
     "dependencies": {
       "@hono/node-server": "^1.13.7",
