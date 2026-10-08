@@ -7,16 +7,16 @@ and different risk profile (it can propose code changes to a live app with 161+ 
 real Stripe payments). It gets its own file rather than an X or Y number borrowed from an
 unrelated plan. Y-series (portal repo) is likewise unrelated (LiveKit meeting classes).
 
-**Status 2026-09-21: SPEC ONLY. No code exists in this repo for Guardian yet.** DETECT/GROUP/
-TRIGGER, the Error Inbox, and (new) the cross-project access point are all built and live on
-the portal side (`french-with-jas-portal` `docs/spec/guardian.md`) — this file is the plan for
-everything downstream of a `TRIGGERED` incident: the investigation agent, the repair agent, the
-verifier, and the Robot Student. None of it is implemented in this repo yet. Do not read this
-file as a built-status doc; it is a design doc with an explicit build order below.
+**Status 2026-10-08: investigation agent, repair agent, auto-merge, Approve gating, 2h auto-revert
+watch, AI budget meter and WhatsApp + Inbox notices are BUILT (`apps/slack/src/guardian`, see
+"Built 2026-10-08" below). Unit-tested and simulated end to end with fakes; NOT yet run against a
+real incident.** Still not built: verifier re-running tests/build before merge, Robot Student,
+WhatsApp screenshot intake. DETECT/GROUP/TRIGGER and the Error Inbox live on the portal side
+(`french-with-jas-portal` `docs/spec/guardian.md`).
 
 **2026-10-02: auto-repair rules locked by Jas** (section "Auto-repair rules" below). They
 replace the earlier "nothing auto-deploys at any risk level" rule. **2026-10-08:** the "big"
-list and the auto-revert window/threshold were decided (same section). Not built.
+list and the auto-revert window/threshold were decided (same section). Built 2026-10-08.
 
 ## Why this lives here, not in the portal repo
 
@@ -62,7 +62,7 @@ The value is never written in the repo, specs or PRs.
 
 ## Setup status — 2026-10-08 (checklist Part 1, done by Jas)
 
-Everything below is configuration only; no Guardian code exists yet.
+Configuration done by Jas (the code that uses it is described in the next section).
 
 - **Railway:** project `perfect-truth`, service `@platform/orchestrator` (chosen because
   Guardian wires into the existing orchestrator). Jas pasted three variables himself:
@@ -82,7 +82,55 @@ Everything below is configuration only; no Guardian code exists yet.
 - **Still open from the checklist:** Ramandeep's "hi" test of the WhatsApp bot (Harman's "hi"
   was confirmed as intent `greeting`).
 
-## Investigation agent (packages/agents/guardian) — NOT BUILT
+## Built 2026-10-08 (Part 2) — `apps/slack/src/guardian`
+
+**Where it runs:** inside the `@platform/orchestrator` Railway service (the Slack bot process,
+`apps/slack/src/index.ts` calls `startGuardianLoop`), because its three variables live there. It
+starts only when `GUARDIAN_SHARED_SECRET`, `GUARDIAN_ANTHROPIC_API_KEY` and `GITHUB_TOKEN` are all
+set, never throws into the host, ticks every 5 min (`GUARDIAN_INTERVAL_MIN`), and makes no AI call
+unless a `TRIGGERED` incident or an approved/merged repair exists.
+
+**Switch — `GUARDIAN_MODE` (Railway variable):** `off` | `investigate` (DEFAULT) | `auto`.
+`investigate` diagnoses and writes findings to the Error Inbox but changes no code. `auto` applies
+the full locked rules. Jas flips it to `auto` himself; nothing does it automatically.
+
+**Two agent contracts so the ROUTER enforces the mode:** `guardian-investigator` (allowedTools:
+`guardian.portal`, `guardian.github_read`) and `guardian-repairer` (adds `guardian.github_write`).
+Every tool call is checked and logged in `agent_logs`. `guardian.github_write` refuses any file
+write that is not on a Guardian branch, and refuses moving/deleting refs.
+
+**Pipeline per tick** (`workflow.ts`): (1) merge repairs Jas approved; (2) watch merged repairs
+(`revert.ts`, locked 2h rule) and auto-revert via a revert PR — refused, with a "please undo by
+hand" notice, if anyone changed the same files since the fix; (3) investigate up to 1 TRIGGERED
+incident: seven answers → `write_investigation`; in `auto` mode a second call proposes exact
+search/replace edits (only on files it read, under `src/`, `api/`, `supabase/functions/`),
+`classify.ts` decides small / big / blocked, then branch → PR → squash-merge (small) or PR + Approve
+(big). Blocked = never a PR, Jas is told in the Inbox.
+
+**Classifier** (`classify.ts`, unit-tested): Jas's 2026-10-08 list by path and changed text, erring
+towards big. Hard wall (blocked): anything `whatsapp`, `whatsapp_people`/`whatsapp_messages`,
+package/lock/vercel/railway/vite config, `.github/`, `.env`, `CLAUDE.md`, Guardian's own files.
+**Added by Claude, more careful than the locked list (Jas may remove):** more than 3 files or ~60
+changed lines is big; critical-severity incidents are big.
+
+**AI budget:** metered in the PORTAL database (`guardian_ai_calls`, reserve before / settle after,
+CA$ cents per Vancouver month, `GUARDIAN_MONTHLY_CAP_CAD` default 25, `GUARDIAN_USD_TO_CAD` default
+1.4), because the analyst Supabase's `reserve_llm_call` counts all agents together. Uses
+`GUARDIAN_ANTHROPIC_API_KEY` only; model `GUARDIAN_MODEL` default `claude-sonnet-4-6`. At the cap,
+incidents go back to `TRIGGERED` and wait.
+
+**Prompt-injection isolation** (`untrusted.ts`, unit-tested): every incident field, occurrence,
+timeline entry, commit message and file content is wrapped in a per-call random-id
+`<untrusted-data>` fence; fence-looking text inside is neutralised; the system prompt says it is
+data only. Output is schema-validated (zod) and edits may only target files Guardian read.
+
+**Portal side it uses** (portal `docs/spec/guardian.md`): `guardian-incidents` actions
+`ai_reserve/ai_settle/ai_release`, `repair_create/repair_update/repair_list`, `error_counts`,
+`notify`; tables `guardian_repairs`, `guardian_ai_calls`; Approve/Reject via
+`guardian_decide_repair()` in the Error Inbox. The function refuses a big fix created as approved
+and any `approved` status set by the agent.
+
+## Investigation agent — ✅ BUILT 2026-10-08 (see above; original design kept below)
 
 Receives a structured incident (occurrences, sanitized messages, feature/route/operation,
 fingerprint, trigger reason — fetched via `get_incident` above) and answers the seven questions
@@ -95,7 +143,7 @@ unbuilt) verifier confirms.
 bot (`french-with-jas-portal` `docs/spec/whatsapp-bot.md`, not built) also start an
 investigation. Screenshot text is untrusted input exactly like `sanitized_message` (see below).
 
-**Prompt-injection isolation (NOT BUILT, required before this agent handles any real incident):**
+**Prompt-injection isolation (✅ BUILT 2026-10-08 in `untrusted.ts`; screenshot text still to come):**
 every field that originated from student input or portal error text — sanitized_message,
 browser_context, anything sourced from `guardian_occurrences`, and any text read from a
 WhatsApp screenshot — must be passed as clearly delimited untrusted data, never concatenated
@@ -111,7 +159,7 @@ investigation agent is invoked ONLY when a `TRIGGERED` incident exists (`list_in
 one), a WhatsApp screenshot arrives, or the owner manually requests investigation — never on a
 timer that runs regardless.
 
-## Repair agent — NOT BUILT
+## Repair agent — ✅ BUILT 2026-10-08 except the pre-merge test/build run (see above)
 
 Per the build brief's 13-step sequence (reproduce → inspect → root cause → branch → smallest
 repair → regression test → existing tests → typecheck → lint → build → re-reproduce → PR →
@@ -124,7 +172,7 @@ the pattern already used twice on the portal side: `Submissions.jsx` and `DrillB
 had this exact class of bug, an unchecked/under-checked write, so a repair agent working a
 "silent failure" incident should check for a missing `.error` check first).
 
-## Auto-repair rules — 🔒 LOCKED 2026-10-02, details LOCKED 2026-10-08 (Jas), ❌ NOT BUILT
+## Auto-repair rules — 🔒 LOCKED 2026-10-02, details LOCKED 2026-10-08 (Jas), ✅ BUILT 2026-10-08 (behind `GUARDIAN_MODE=auto`)
 
 Replaces the earlier LOW/MEDIUM/HIGH split and the v1 rule "nothing auto-merges or
 auto-deploys at any risk level".
@@ -189,7 +237,7 @@ testing cannot currently be implemented, build the test harness and leave unsafe
 disabled") — even the harness is not built yet; this is flagged as concrete future work, not
 deferred indefinitely.
 
-## AI cost control — NOT BUILT (no AI calls exist yet to meter)
+## AI cost control — ✅ BUILT 2026-10-08 in the portal DB (see above; original plan below)
 
 Planned: reuse the existing `LLM_MONTHLY_CAP` guard pattern from this repo's CLAUDE.md, scoped
 separately for Guardian (CA$25/month, owner-configurable, independent of the analyst agent's
@@ -208,7 +256,7 @@ above). Rollback is "revert the merge commit", done automatically when post-merg
 
 1. ~~Portal-side `guardian-incidents` Edge Function (cross-project access).~~ ✅ Done — see
    above. ~~Setting `GUARDIAN_SHARED_SECRET`~~ ✅ done 2026-10-08.
-2. `packages/agents/guardian` skeleton wired into the existing orchestrator, `allowedTools`
+2. `apps/slack/src/guardian` skeleton wired into the existing orchestrator, `allowedTools`
    scoped to read-only (incident data via the Edge Function, source code, recent commits,
    existing tests) — no write tools until the repair agent is explicitly scoped and approved.
 3. Prompt-injection isolation on incident text, tested with an adversarial sample message before
@@ -242,9 +290,7 @@ above). Rollback is "revert the merge commit", done automatically when post-merg
 8. AI is not continuously running when there are no qualifying incidents: **PASS by
    construction** — zero AI calls exist in this build. Nothing to poll continuously.
 
-Incomplete, explicitly: investigation agent, repair agent, verifier, Robot Student (including
-its harness), prompt-injection isolation, AI budget accounting, the 2026-10-02 auto-repair
-pieces (auto-merge, Approve gating, auto-revert, WhatsApp/Inbox notices, screenshot intake),
-wiring the report helper into the six speech/recording modules on the portal side,
-post-repair MONITORING/reopen transitions, and any load/concurrency testing. All flagged,
-none claimed as done.
+Built 2026-10-08 but not yet exercised on a real incident: investigation, repair, auto-merge,
+Approve gating, auto-revert, AI meter, notices. Still incomplete: verifier (tests/build before
+merge), Robot Student (including its harness), WhatsApp screenshot intake, wiring the report
+helper into the six speech/recording modules on the portal side, load/concurrency testing.
