@@ -15,7 +15,8 @@ verifier, and the Robot Student. None of it is implemented in this repo yet. Do 
 file as a built-status doc; it is a design doc with an explicit build order below.
 
 **2026-10-02: auto-repair rules locked by Jas** (section "Auto-repair rules" below). They
-replace the earlier "nothing auto-deploys at any risk level" rule. Not built.
+replace the earlier "nothing auto-deploys at any risk level" rule. **2026-10-08:** the "big"
+list and the auto-revert window/threshold were decided (same section). Not built.
 
 ## Why this lives here, not in the portal repo
 
@@ -27,7 +28,7 @@ analyst agent (banned topics + brand voice — Guardian's equivalent is prompt-i
 isolation, see below). Reusing this instead of inventing a second agent framework inside the
 no-TS portal repo is the point.
 
-## Cross-project access — ✅ BUILT 2026-09-21 (portal side), ⚠ needs a secret before use
+## Cross-project access — ✅ BUILT 2026-09-21 (portal side), ✅ secret set 2026-10-08
 
 The gap flagged below as "resolve before any code" is now closed. The portal deployed
 `supabase/functions/guardian-incidents/index.ts` (`Verify JWT OFF` — it authenticates via a
@@ -53,11 +54,33 @@ agent's surface, not the repair agent's** — actual code changes still only eve
 GitHub (branch → PR → merge on the portal's `main`, auto or Approve-gated per the auto-repair
 rules below), never through this function.
 
-**⚠ Not usable yet:** `GUARDIAN_SHARED_SECRET` has not been set (Claude cannot set Supabase Edge
-Function secrets — same limitation as `DASH_URL` during X0). Generate a 24+ char value, set it
-on the function in the Supabase dashboard, and use the identical value in whatever calls it from
-this repo. No rush — nothing here calls it yet — but do this before starting the investigation
-agent skeleton (next item), so the first real call isn't blocked on a missing secret.
+**Secret status 2026-10-08:** `GUARDIAN_SHARED_SECRET` is set on the portal function (Jas did it
+in the Supabase dashboard) and the identical value is set as a Railway variable (see "Setup
+status" below). Verified from the portal side: a call with a deliberately wrong secret returns
+`401 unauthorized`, not `503 not_configured`. A call with the real secret has not been made yet.
+The value is never written in the repo, specs or PRs.
+
+## Setup status — 2026-10-08 (checklist Part 1, done by Jas)
+
+Everything below is configuration only; no Guardian code exists yet.
+
+- **Railway:** project `perfect-truth`, service `@platform/orchestrator` (chosen because
+  Guardian wires into the existing orchestrator). Jas pasted three variables himself:
+  `GUARDIAN_ANTHROPIC_API_KEY`, `GUARDIAN_SHARED_SECRET`, `GITHUB_TOKEN`. The existing
+  `ANTHROPIC_API_KEY` on that service belongs to the analyst agents and is left untouched —
+  **Guardian code must read `GUARDIAN_ANTHROPIC_API_KEY`**, so the CA$25/month cap only counts
+  Guardian's own spend. Never set these through the Railway MCP.
+- **GitHub token:** fine-grained personal access token `guardian-repair`, repository access
+  limited to `jaspin10/french-with-jas-portal`, permissions Contents RW, Pull requests RW,
+  Metadata R. **Expires 2027-10-07 — renew before then.**
+- **WhatsApp notice template:** `portal_notice`, English, WABA `2039209266746314`. Meta refused
+  to accept it as Utility (it kept warning the template would be rejected), so it was submitted
+  as **Marketing** on 2026-10-08. Body: "French With Jas system notice for your staff account:
+  {{1}}. Reply here if you have questions." Sample for {{1}}: "a small fix for the homework
+  page was published". **Approval is pending** — check its status in WhatsApp Manager before
+  building notices that depend on it.
+- **Still open from the checklist:** Ramandeep's "hi" test of the WhatsApp bot (Harman's "hi"
+  was confirmed as intent `greeting`).
 
 ## Investigation agent (packages/agents/guardian) — NOT BUILT
 
@@ -101,24 +124,50 @@ the pattern already used twice on the portal side: `Submissions.jsx` and `DrillB
 had this exact class of bug, an unchecked/under-checked write, so a repair agent working a
 "silent failure" incident should check for a missing `.error` check first).
 
-## Auto-repair rules — 🔒 LOCKED 2026-10-02 (Jas), ❌ NOT BUILT
+## Auto-repair rules — 🔒 LOCKED 2026-10-02, details LOCKED 2026-10-08 (Jas), ❌ NOT BUILT
 
 Replaces the earlier LOW/MEDIUM/HIGH split and the v1 rule "nothing auto-merges or
 auto-deploys at any risk level".
 
 - **Repair inputs:** Guardian `TRIGGERED` incidents AND Harman's WhatsApp error screenshots.
 - **Small error → auto-merge** to portal `main`. No checks, no approval.
-- **Big error → PR waits for an Approve button** in the portal's owner Error Inbox. An error is
-  big if EITHER the fix touches login, access, payments or student data, OR the error itself
-  blocks a class or homework.
-- **Auto-revert:** if the same error or new errors rise after a merge, revert the merge commit
-  automatically.
+- **Big error → PR waits for an Approve button** in the portal's owner Error Inbox. See "What
+  counts as big" below.
+- **Auto-revert:** see "Auto-revert rule" below.
 - **Notify:** Harman and Jas on WhatsApp AND in the Error Inbox for every merge and every
   revert.
 - **Budget:** CA$25/month AI cap kept (see AI cost control).
-- **Still undecided (Jas):** (a) the exact path/table list that makes a fix "big";
-  (b) the revert window and the threshold that triggers a revert. Do not build the big/small
-  classifier or the auto-revert check until both are decided.
+
+### What counts as "big" — 🔒 LOCKED 2026-10-08 (Jas)
+
+A fix is big (waits for Jas's Approve) if it does ANY of these:
+
+- touches login or sign-up;
+- changes who can see what (roles, access status, permissions);
+- touches payments (Stripe, Interac, prices);
+- changes the database structure (a migration), or deletes or edits student data;
+- fixes an error that stops a class or homework from working;
+- **anti-fraud (new 2026-10-08):** touches licenses, access dates, free access, discounts,
+  refunds, or anything else that gives someone access or money — including anything that
+  would let anyone other than Jas (e.g. Harman) extend a license.
+
+Everything else is small and merges by itself. The merge/revert notices still go out.
+
+**Hard wall (2026-10-08):** the repair agent may NEVER change the WhatsApp bot's role and
+permission rules (`whatsapp_people` roles/permissions in the portal repo). Only Jas can
+approve a change like that, by hand. The bot must also never tell a staff member how to get
+around its limits. The big/small classifier must treat any diff touching those rules as
+"never auto-repair", not merely "big".
+
+### Auto-revert rule — 🔒 LOCKED 2026-10-08 (Jas)
+
+After each merge, watch for **2 hours**. Revert the merge commit if EITHER:
+
+- the same error happens again, even once; OR
+- new errors in those 2 hours are at least **double** the errors in the 2 hours before the
+  merge, AND there are at least **3** new errors.
+
+Jas and Harman get a WhatsApp and an Error Inbox notice on every revert.
 
 ## Verifier — NOT BUILT
 
@@ -158,7 +207,7 @@ above). Rollback is "revert the merge commit", done automatically when post-merg
 ## Build order for the next session on this repo
 
 1. ~~Portal-side `guardian-incidents` Edge Function (cross-project access).~~ ✅ Done — see
-   above. Setting `GUARDIAN_SHARED_SECRET` is the one remaining manual step.
+   above. ~~Setting `GUARDIAN_SHARED_SECRET`~~ ✅ done 2026-10-08.
 2. `packages/agents/guardian` skeleton wired into the existing orchestrator, `allowedTools`
    scoped to read-only (incident data via the Edge Function, source code, recent commits,
    existing tests) — no write tools until the repair agent is explicitly scoped and approved.
@@ -167,9 +216,10 @@ above). Rollback is "revert the merge commit", done automatically when post-merg
 4. Investigation agent producing the seven answers, stored via `write_investigation`.
 5. Robot Student harness (disabled by default) before the repair agent, so there's a safe
    verification path ready when repairs start landing.
-6. Repair agent opening PRs; big/small classification once Jas decides the "big" list.
-7. Auto-merge (small), Approve button wiring (big, portal side), auto-revert watch once Jas
-   decides the window/threshold, WhatsApp + Inbox notices (needs the portal WhatsApp bot).
+6. Repair agent opening PRs; big/small classification using the "big" list decided 2026-10-08.
+7. Auto-merge (small), Approve button wiring (big, portal side), auto-revert watch (2h rule
+   decided 2026-10-08), WhatsApp + Inbox notices (needs the portal WhatsApp bot and the
+   approved `portal_notice` template).
 8. WhatsApp screenshot intake as the second repair input.
 
 ## Guardian verification report (spec section 23) — honest status this pass
@@ -184,7 +234,7 @@ above). Rollback is "revert the merge commit", done automatically when post-merg
 5. Students cannot access Guardian admin functionality: **PASS** — RLS is owner-only on the
    portal DB; the `guardian-incidents` function has no user-facing path at all (shared secret,
    not a session) — verified via the policy/code definitions, not live non-owner and non-secret
-   attempts.
+   attempts. (2026-10-08: the wrong-secret path was also exercised live and returned 401.)
 6. Big-error repairs cannot merge without Approve: **N/A** — the rule changed 2026-10-02 (was
    "high-risk repairs cannot automatically deploy"); no repair agent exists yet to test against.
 7. Monitoring continues when AI budget is exhausted: **N/A** — no AI budget exists yet to
@@ -196,5 +246,5 @@ Incomplete, explicitly: investigation agent, repair agent, verifier, Robot Stude
 its harness), prompt-injection isolation, AI budget accounting, the 2026-10-02 auto-repair
 pieces (auto-merge, Approve gating, auto-revert, WhatsApp/Inbox notices, screenshot intake),
 wiring the report helper into the six speech/recording modules on the portal side,
-post-repair MONITORING/reopen transitions, any load/concurrency testing, and the
-`GUARDIAN_SHARED_SECRET` manual step. All flagged, none claimed as done.
+post-repair MONITORING/reopen transitions, and any load/concurrency testing. All flagged,
+none claimed as done.
