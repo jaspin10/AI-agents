@@ -68,6 +68,13 @@ const BIG: Rule[] = [
 /** An error that stops a class or homework from working is always big. */
 const CLASS_OR_HOMEWORK = /homework|submission|submit|drill|class|live|lesson|level1|level15|exercise|challenge|listening|writing|speak|record|transcri|meet|room/i;
 
+/**
+ * A change a staff member asked for on WhatsApp (operation `change_request`, built 2026-10-09,
+ * Jas: "do both"). Always big: it is new behaviour, not a repair, so Jas must see it first.
+ * The hard wall above still applies to it.
+ */
+export const STAFF_REQUEST_REASON = 'a staff change request from WhatsApp (always waits for Jas)';
+
 /** Changes bigger than this are big no matter what they touch. */
 export const MAX_SMALL_FILES = 3;
 export const MAX_SMALL_CHANGED_LINES = 60;
@@ -99,6 +106,8 @@ export function classifyRepair(edits: ProposedEdit[], incident: IncidentFacts, m
   }
 
   if (blocked.length > 0) return { size: 'blocked', reasons: blocked };
+
+  if (incident.operation === 'change_request') addUnique(big, STAFF_REQUEST_REASON);
 
   const incidentText = `${incident.feature} ${incident.operation} ${incident.route}`;
   if (modelSaysBlocksClassOrHomework || CLASS_OR_HOMEWORK.test(incidentText)) {
