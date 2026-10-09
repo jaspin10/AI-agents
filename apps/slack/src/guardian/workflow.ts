@@ -8,6 +8,7 @@ import { InvestigationSchema, PROMPT_VERSION, RepairPlanSchema, investigationSys
 import { decideWatch } from './revert.js';
 import { decideMergeGate } from './gate.js';
 import { extractJson } from './untrusted.js';
+import { awaitingApprovalNotice } from './notices.js';
 import type { GuardianMode } from './config.js';
 
 /**
@@ -264,9 +265,9 @@ async function openRepairPr(
   const pr = await github.openPr(branch, `guardian: ${summary}`.slice(0, 120), body);
 
   if (classification.size === 'big') {
-    await portal.createRepair({ incident_id: incident.id, size: 'big', big_reasons: classification.reasons, summary, branch, pr_number: pr.number, pr_url: pr.url, status: 'awaiting_approval' });
+    const waiting = await portal.createRepair({ incident_id: incident.id, size: 'big', big_reasons: classification.reasons, summary, branch, pr_number: pr.number, pr_url: pr.url, status: 'awaiting_approval' });
     await portal.updateStatus(incident.id, 'AWAITING_APPROVAL', `Big fix waiting for Approve: ${pr.url}`);
-    await portal.notify('guardian_awaiting_approval', incident.id, noticeText(`a big fix is waiting for Jas to approve in the Error Inbox (${summary})`), 'owner', true);
+    await portal.notify('guardian_awaiting_approval', incident.id, noticeText(awaitingApprovalNotice(summary, waiting.id, incident.operation === 'change_request')), 'owner', true);
     return;
   }
 
