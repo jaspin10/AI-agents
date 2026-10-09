@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyRepair } from './classify.js';
+import { STAFF_REQUEST_REASON, classifyRepair } from './classify.js';
 
 const plain = { feature: 'dashboard', operation: 'load_profile_card', route: '/dashboard', severity: 'low' };
 
@@ -50,6 +50,21 @@ test('critical incidents and large changes are big', () => {
   assert.equal(classifyRepair(edit, { ...plain, severity: 'critical' }, false).size, 'big');
   const many = ['a', 'b', 'c', 'd'].map((n) => ({ path: `src/components/${n}.jsx`, oldStr: 'x', newStr: 'y' }));
   assert.equal(classifyRepair(many, plain, false).size, 'big');
+});
+
+test('a staff change request from WhatsApp is always big, even a tiny safe edit', () => {
+  const edit = [{ path: 'src/components/ProfileCard.jsx', oldStr: 'const x = data.name;', newStr: "const x = data ? data.name : '';" }];
+  for (const feature of ['level15', 'portal']) {
+    const out = classifyRepair(edit, { feature, operation: 'change_request', route: 'whatsapp', severity: 'medium' }, false);
+    assert.equal(out.size, 'big', feature);
+    assert.ok(out.reasons.includes(STAFF_REQUEST_REASON), feature);
+  }
+});
+
+test('a staff change request still hits the hard wall', () => {
+  const req = { feature: 'level15', operation: 'change_request', route: 'whatsapp', severity: 'medium' };
+  assert.equal(classifyRepair([{ path: 'supabase/functions/whatsapp-bot/index.ts', oldStr: 'a', newStr: 'b' }], req, false).size, 'blocked');
+  assert.equal(classifyRepair([{ path: 'src/lib/guardianReport.js', oldStr: 'a', newStr: 'b' }], req, false).size, 'blocked');
 });
 
 test('empty repair is refused', () => {
