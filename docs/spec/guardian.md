@@ -147,10 +147,17 @@ hypotheses, written via `write_investigation`, never treated as verified until t
 unbuilt) verifier confirms.
 
 **Second input (locked 2026-10-02):** error screenshots Harman sends to the portal's WhatsApp
-bot (`french-with-jas-portal` `docs/spec/whatsapp-bot.md`, not built) also start an
+bot (`french-with-jas-portal` `docs/spec/whatsapp-bot.md`) also start an
 investigation. Screenshot text is untrusted input exactly like `sanitized_message` (see below).
+**Agent side ✅ BUILT 2026-10-10 (prompt `guardian-v3`):** for `trigger_reason = staff_report`,
+`workflow.ts` `loadScreenshot` calls the portal `get_screenshot` action (that incident's own
+image only, jpeg/png/webp, ≤4 MB, schema-checked in `portal.ts`) and sends it to the
+investigation call as an image in the USER turn, labelled untrusted (`SCREENSHOT_RULES`).
+Repair calls stay text-only. The image is reserved against the CA$ cap (+1,600 tokens in
+`llm.ts`) and settled at real usage. No screenshot / fetch failure → investigation continues
+without it; `investigation.screenshot` records `attached` / `none: <reason>`. Small/big rules unchanged.
 
-**Prompt-injection isolation (✅ BUILT 2026-10-08 in `untrusted.ts`; screenshot text still to come):**
+**Prompt-injection isolation (✅ BUILT 2026-10-08 in `untrusted.ts`; screenshots ✅ 2026-10-10):**
 every field that originated from student input or portal error text — sanitized_message,
 browser_context, anything sourced from `guardian_occurrences`, and any text read from a
 WhatsApp screenshot — must be passed as clearly delimited untrusted data, never concatenated
