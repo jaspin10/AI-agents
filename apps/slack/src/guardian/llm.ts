@@ -35,6 +35,33 @@ export function costCents(model: string, inputTokens: number, outputTokens: numb
   return Math.ceil(usd * usdToCad * 100);
 }
 
+/**
+ * Images are billed as tokens; the API downsizes anything larger, which caps one image at
+ * roughly 1,600 input tokens. Reserve that ceiling so a screenshot never slips past the cap.
+ */
+export const IMAGE_TOKEN_ESTIMATE = 1600;
+
+export interface LlmImage {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
+  data: string;
+}
+
+/**
+ * The user turn. An image (a staff screenshot) is untrusted data: it only ever goes in the
+ * user turn, before the text that labels it as untrusted, never in the system prompt.
+ */
+export function buildUserContent(user: string, image?: LlmImage): string | Array<Record<string, unknown>> {
+  if (image === undefined) return user;
+  return [
+    { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+    { type: 'text', text: user },
+  ];
+}
+
+export function estimateInputTokens(system: string, user: string, image?: LlmImage): number {
+  return estimateTokens(system + user) + (image === undefined ? 0 : IMAGE_TOKEN_ESTIMATE);
+}
+
 export class BudgetExhaustedError extends Error {
   constructor(usedCents: number, capCents: number) {
     super(`Guardian AI budget reached: CA$${(usedCents / 100).toFixed(2)} of CA$${(capCents / 100).toFixed(2)} used this month`);
@@ -43,14 +70,14 @@ export class BudgetExhaustedError extends Error {
 }
 
 export interface GuardianLlm {
-  complete: (options: { purpose: string; incidentId: string | null; system: string; user: string; maxTokens: number }) => Promise<string>;
+  complete: (options: { purpose: string; incidentId: string | null; system: string; user: string; maxTokens: number; image?: LlmImage }) => Promise<string>;
 }
 
 export function createGuardianLlm(options: { apiKey: string; model: string; capCents: number; usdToCad: number; portal: Portal }): GuardianLlm {
   return {
-    async complete({ purpose, incidentId, system, user, maxTokens }) {
+    async complete({ purpose, incidentId, system, user, maxTokens, image }) {
       const id = randomUUID();
-      const estimate = costCents(options.model, estimateTokens(system + user), maxTokens, options.usdToCad);
+      const estimate = costCents(options.model, estimateInputTokens(system, user, image), maxTokens, options.usdToCad);
       const reservation = await options.portal.aiReserve(id, incidentId, purpose, estimate, options.capCents);
       if (!reservation.ok) throw new BudgetExhaustedError(reservation.used_cents, reservation.cap_cents);
 
@@ -67,7 +94,7 @@ export function createGuardianLlm(options: { apiKey: string; model: string; capC
             model: options.model,
             max_tokens: maxTokens,
             system,
-            messages: [{ role: 'user', content: user }],
+            messages: [{ role: 'user', content: buildUserContent(user, image) }],
           }),
           signal: AbortSignal.timeout(180000),
         });

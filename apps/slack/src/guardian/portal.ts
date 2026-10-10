@@ -43,6 +43,15 @@ export const RepairSchema = z.object({
 }).passthrough();
 export type Repair = z.infer<typeof RepairSchema>;
 
+/** One incident's own staff screenshot (WhatsApp staff_report). Never a free storage path. */
+export const SCREENSHOT_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const MAX_SCREENSHOT_B64 = Math.ceil((4 * 1024 * 1024) / 3) * 4;
+export const ScreenshotSchema = z.union([
+  z.object({ ok: z.literal(true), media_type: z.enum(SCREENSHOT_MEDIA_TYPES), data: z.string().min(1).max(MAX_SCREENSHOT_B64).regex(/^[A-Za-z0-9+/]+=*$/), bytes: z.number() }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+export type Screenshot = z.infer<typeof ScreenshotSchema>;
+
 export type PortalCall = (action: string, body: Record<string, unknown>) => Promise<unknown>;
 
 export class PortalError extends Error {
@@ -85,6 +94,10 @@ export class Portal {
 
   async getIncident(incidentId: string): Promise<{ incident: Incident; occurrences: unknown[]; timeline: unknown[] }> {
     return z.object({ incident: IncidentSchema, occurrences: z.array(z.unknown()), timeline: z.array(z.unknown()) }).parse(await this.call('get_incident', { incident_id: incidentId }));
+  }
+
+  async getScreenshot(incidentId: string): Promise<Screenshot> {
+    return ScreenshotSchema.parse(await this.call('get_screenshot', { incident_id: incidentId }));
   }
 
   async writeInvestigation(incidentId: string, investigation: Record<string, unknown>, newStatus: string, summary: string): Promise<void> {
