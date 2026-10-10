@@ -2,7 +2,7 @@ import type { Logger } from '@platform/shared';
 import { classifyRepair, type Classification, type ProposedEdit } from './classify.js';
 import { applyEdits, describeEdits } from './edits.js';
 import { GitHub } from './github.js';
-import { BudgetExhaustedError, type GuardianLlm } from './llm.js';
+import { BudgetExhaustedError, type GuardianLlm, type LlmImage } from './llm.js';
 import type { Incident, Portal, Repair } from './portal.js';
 import { InvestigationSchema, PROMPT_VERSION, RepairPlanSchema, investigationSystem, investigationUser, repairSystem, repairUser, type Investigation } from './prompts.js';
 import { decideWatch } from './revert.js';
@@ -106,6 +106,23 @@ async function step(deps: WorkflowDeps, result: TickResult, name: string, fn: ()
 
 // ---------------------------------------------------------------- investigate
 
+/**
+ * Staff WhatsApp reports (trigger_reason staff_report) may carry a screenshot. Fetch only
+ * this incident's own image; a missing or failed screenshot never stops the investigation.
+ */
+export async function loadScreenshot(deps: Pick<WorkflowDeps, 'portal' | 'logger'>, incident: Incident): Promise<{ image?: LlmImage; note: string }> {
+  if (incident.trigger_reason !== 'staff_report') return { note: 'not a staff report' };
+  try {
+    const shot = await deps.portal.getScreenshot(incident.id);
+    if (!shot.ok) return { note: `none: ${shot.error.slice(0, 60)}` };
+    return { image: { mediaType: shot.media_type, data: shot.data }, note: 'attached' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    deps.logger.error(`guardian screenshot for ${shortId(incident.id)} failed: ${message}`);
+    return { note: 'none: fetch failed' };
+  }
+}
+
 type IncidentOutcome = 'diagnosed' | 'repair' | 'blocked' | 'declined' | 'failed' | 'budget';
 
 async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<IncidentOutcome> {
@@ -115,15 +132,19 @@ async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<I
   let investigation: Investigation;
   let paths: string[];
   let detail: Awaited<ReturnType<Portal['getIncident']>>;
+  let screenshotNote = 'not a staff report';
   try {
     detail = await portal.getIncident(incident.id);
     paths = (await deps.github.listPaths()).filter((p) => READABLE.test(p) && !NEVER_READ.test(p));
+    const shot = await loadScreenshot(deps, incident);
+    screenshotNote = shot.note;
     const reply = await deps.llm.complete({
       purpose: 'investigate',
       incidentId: incident.id,
       system: investigationSystem(),
-      user: investigationUser(detail.incident, detail.occurrences, detail.timeline, paths),
+      user: investigationUser(detail.incident, detail.occurrences, detail.timeline, paths, shot.image === undefined ? 'none' : 'attached'),
       maxTokens: 2000,
+      ...(shot.image === undefined ? {} : { image: shot.image }),
     });
     investigation = InvestigationSchema.parse(extractJson(reply));
   } catch (error) {
@@ -141,7 +162,7 @@ async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<I
     files.push({ path, text: file.text, sha: file.sha, commits: await deps.github.recentCommits(path, 5) });
   }
 
-  const record: Record<string, unknown> = { ...investigation, files_read: files.map((f) => f.path), model: deps.model, prompt_version: PROMPT_VERSION, investigated_at: iso(deps.now()) };
+  const record: Record<string, unknown> = { ...investigation, files_read: files.map((f) => f.path), model: deps.model, prompt_version: PROMPT_VERSION, screenshot: screenshotNote, investigated_at: iso(deps.now()) };
   const canRepair = deps.mode === 'auto' && investigation.real_defect && investigation.confidence !== 'low' && files.length > 0;
 
   if (!canRepair) {
