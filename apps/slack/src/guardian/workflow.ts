@@ -4,10 +4,10 @@ import { applyEdits, describeEdits } from './edits.js';
 import { GitHub } from './github.js';
 import { BudgetExhaustedError, type GuardianLlm, type LlmImage } from './llm.js';
 import type { Incident, Portal, Repair } from './portal.js';
-import { InvestigationSchema, PROMPT_VERSION, RepairPlanSchema, investigationSystem, investigationUser, repairSystem, repairUser, type Investigation } from './prompts.js';
+import { InvestigationSchema, PROMPT_VERSION, RepairPlanSchema, investigationSystem, investigationUser, repairSystem, repairUser, type Investigation, type RepairPlan } from './prompts.js';
 import { decideWatch } from './revert.js';
 import { decideMergeGate } from './gate.js';
-import { extractJson } from './untrusted.js';
+import { extractJson, JsonExtractError } from './untrusted.js';
 import { awaitingApprovalNotice } from './notices.js';
 import type { GuardianMode } from './config.js';
 
@@ -18,6 +18,11 @@ import type { GuardianMode } from './config.js';
  *   3. investigate TRIGGERED incidents (both modes); in auto mode also propose a
  *      repair: small -> auto-merge, big -> PR waiting for Approve, blocked -> Jas
  * Each step is isolated: one failure never stops the others.
+ *
+ * Regressions (2026-10-12): the portal's guardian_ingest_event moves a FIXED/CLOSED
+ * incident back to TRIGGERED with trigger_reason 'regression' when the error comes back,
+ * and marks its repair 'regressed'. Step 3 then re-investigates it like a new trigger and
+ * sends the WhatsApp notice.
  */
 
 export interface WorkflowDeps {
@@ -36,6 +41,8 @@ const MAX_FILE_CHARS = 60000;
 const MAX_TOTAL_CHARS = 150000;
 const READABLE = /^(src|api|supabase\/functions|lib|public)\//;
 const NEVER_READ = /(^|\/)(\.env|node_modules\/|dist\/)|\.(png|jpe?g|gif|webp|ico|svg|mp3|mp4|webm|woff2?|pdf|zip|lock)$/i;
+/** How much of an unparseable model reply is kept in the investigation record for debugging. */
+const RAW_REPLY_CHARS = 4000;
 
 export interface TickResult {
   approvedMerged: number;
@@ -124,10 +131,36 @@ export async function loadScreenshot(deps: Pick<WorkflowDeps, 'portal' | 'logger
 }
 
 type IncidentOutcome = 'diagnosed' | 'repair' | 'blocked' | 'declined' | 'failed' | 'budget';
+type RepoFile = { path: string; text: string; sha: string; commits: unknown };
+
+/** Read the wanted files (only real, readable paths, within the size caps) into `files`. */
+async function readFiles(deps: WorkflowDeps, wanted: string[], paths: string[], files: RepoFile[]): Promise<number> {
+  let total = files.reduce((sum, f) => sum + f.text.length, 0);
+  let added = 0;
+  for (const path of wanted) {
+    if (!paths.includes(path) || files.some((f) => f.path === path)) continue;
+    const file = await deps.github.readFile(path);
+    if (file === null || file.text.length > MAX_FILE_CHARS || total + file.text.length > MAX_TOTAL_CHARS) continue;
+    total += file.text.length;
+    files.push({ path, text: file.text, sha: file.sha, commits: await deps.github.recentCommits(path, 5) });
+    added += 1;
+  }
+  return added;
+}
 
 async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<IncidentOutcome> {
   const { portal } = deps;
   await portal.updateStatus(incident.id, 'INVESTIGATING', 'Guardian started investigating.');
+
+  if (incident.trigger_reason === 'regression') {
+    // Own kind: the DB already raised 'guardian_regression' (Inbox + email) with this key,
+    // and notify skips WhatsApp when the alert is deduped.
+    try {
+      await portal.notify('guardian_regression_notice', incident.id, noticeText(`an error Guardian had marked as fixed came back (${incident.feature ?? '?'} / ${incident.operation ?? '?'}). Guardian is investigating it again. Incident ${shortId(incident.id)}`), 'owner_and_sales', true);
+    } catch (error) {
+      deps.logger.error(`guardian regression notice for ${shortId(incident.id)} failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   let investigation: Investigation;
   let paths: string[];
@@ -151,16 +184,8 @@ async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<I
     return failBack(deps, incident, error);
   }
 
-  // Read the files the investigation asked for (only real, readable paths).
-  const wanted = investigation.files_to_read.filter((p) => paths.includes(p));
-  const files: Array<{ path: string; text: string; sha: string; commits: unknown }> = [];
-  let total = 0;
-  for (const path of wanted) {
-    const file = await deps.github.readFile(path);
-    if (file === null || file.text.length > MAX_FILE_CHARS || total + file.text.length > MAX_TOTAL_CHARS) continue;
-    total += file.text.length;
-    files.push({ path, text: file.text, sha: file.sha, commits: await deps.github.recentCommits(path, 5) });
-  }
+  const files: RepoFile[] = [];
+  await readFiles(deps, investigation.files_to_read, paths, files);
 
   const record: Record<string, unknown> = { ...investigation, files_read: files.map((f) => f.path), model: deps.model, prompt_version: PROMPT_VERSION, screenshot: screenshotNote, investigated_at: iso(deps.now()) };
   const canRepair = deps.mode === 'auto' && investigation.real_defect && investigation.confidence !== 'low' && files.length > 0;
@@ -175,18 +200,28 @@ async function handleIncident(deps: WorkflowDeps, incident: Incident): Promise<I
     return 'diagnosed';
   }
 
-  // Ask for the smallest repair.
-  let plan;
+  // Ask for the smallest repair. If the model says it needs files it was not shown,
+  // read them and ask once more (2026-10-12: "neither file was provided" declines).
+  let plan: RepairPlan;
   try {
     const rules = (await deps.github.readFile('CLAUDE.md'))?.text ?? '';
-    const reply = await deps.llm.complete({
-      purpose: 'repair',
-      incidentId: incident.id,
-      system: repairSystem(rules),
-      user: repairUser(detail.incident, investigation, files),
-      maxTokens: 4000,
-    });
-    plan = RepairPlanSchema.parse(extractJson(reply));
+    const ask = async (): Promise<RepairPlan> => {
+      const reply = await deps.llm.complete({
+        purpose: 'repair',
+        incidentId: incident.id,
+        system: repairSystem(rules),
+        user: repairUser(detail.incident, investigation, files),
+        maxTokens: 8000,
+      });
+      return RepairPlanSchema.parse(extractJson(reply));
+    };
+    plan = await ask();
+    if (!plan.can_fix && plan.need_files.length > 0) {
+      const added = await readFiles(deps, plan.need_files, paths, files);
+      record.files_read = files.map((f) => f.path);
+      record.repair_retry = { need_files: plan.need_files, added };
+      if (added > 0) plan = await ask();
+    }
   } catch (error) {
     return failBack(deps, incident, error, record);
   }
@@ -231,9 +266,13 @@ async function failBack(deps: WorkflowDeps, incident: Incident, error: unknown, 
     return 'budget';
   }
   const message = error instanceof Error ? error.message : String(error);
-  deps.logger.warn(`guardian incident ${shortId(incident.id)} failed: ${message}`);
+  // Keep the model's raw reply when it could not be parsed, so the next failure is debuggable.
+  const raw = error instanceof JsonExtractError ? error.raw.slice(0, RAW_REPLY_CHARS) : undefined;
+  deps.logger.warn(`guardian incident ${shortId(incident.id)} failed: ${message}${raw === undefined ? '' : ` | raw reply starts: ${JSON.stringify(raw.slice(0, 500))}`}`);
   if (record !== undefined) {
-    await deps.portal.writeInvestigation(incident.id, { ...record, repair: { attempted: true, failed: message.slice(0, 300) } }, 'DIAGNOSED', `Guardian diagnosed this but the repair step failed: ${message.slice(0, 200)}`);
+    await deps.portal.writeInvestigation(incident.id, { ...record, repair: { attempted: true, failed: message.slice(0, 300), ...(raw === undefined ? {} : { raw_reply: raw }) } }, 'DIAGNOSED', `Guardian diagnosed this but the repair step failed: ${message.slice(0, 200)}`);
+  } else if (raw !== undefined) {
+    await deps.portal.writeInvestigation(incident.id, { failed: message.slice(0, 300), raw_reply: raw, model: deps.model, prompt_version: PROMPT_VERSION, investigated_at: iso(deps.now()) }, 'FAILED', `Guardian investigation failed: ${message.slice(0, 300)}`);
   } else {
     await deps.portal.updateStatus(incident.id, 'FAILED', `Guardian investigation failed: ${message.slice(0, 300)}`);
   }
@@ -361,7 +400,9 @@ async function watchRepair(deps: WorkflowDeps, repair: Repair): Promise<boolean>
   if (decision.action === 'wait') return false;
   if (decision.action === 'keep') {
     await portal.updateRepair(repair.id, { status: 'kept' });
-    await portal.updateStatus(repair.incident_id, 'FIXED', `No new errors in the 2 hours after the merge (${Math.round((now - mergedAt) / 60000)} min watched).`, repair.pr_url ?? undefined);
+    // FIXED is not final: if the same error comes back later, the portal reopens the incident
+    // (trigger_reason 'regression') and marks this repair 'regressed'.
+    await portal.updateStatus(repair.incident_id, 'FIXED', `No new errors in the 2 hours after the merge (${Math.round((now - mergedAt) / 60000)} min watched). Reopens automatically if the error comes back.`, repair.pr_url ?? undefined);
     return false;
   }
   await revertRepair(deps, repair, decision.reason);
